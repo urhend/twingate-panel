@@ -11,6 +11,8 @@
 ![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
+[Repository](https://github.com/urhend/twingate-panel)
+
 *Not affiliated with or endorsed by Twingate Inc. "Twingate" and its logo are trademarks of their respective owner, used here for identification purposes only.*
 
 </div>
@@ -109,7 +111,7 @@ and the extension handles day-to-day connect/disconnect.
 ### From source
 
 ```bash
-git clone <this-repo-url> twingate-panel
+git clone https://github.com/urhend/twingate-panel.git
 ln -s "$(pwd)/twingate-panel" ~/.local/share/gnome-shell/extensions/twingate-panel@urhend
 gnome-extensions enable twingate-panel@urhend
 ```
