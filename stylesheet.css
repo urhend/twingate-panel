@@ -1,0 +1,54 @@
+.twingate-header-box {
+    spacing: 8px;
+    padding: 4px 8px;
+}
+
+.twingate-header-logo {
+    width: 80px;
+    height: 18px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: left center;
+}
+
+.twingate-status-dot {
+    /* Exact pixel size is set in JS (DOT_SIZE) — keep this in sync if changed. */
+    border-radius: 5px;
+}
+
+.twingate-dot-offline {
+    background-color: #9a9996;
+}
+
+.twingate-dot-connecting {
+    background-color: #f5c211;
+}
+
+.twingate-dot-online {
+    background-color: #33d17a;
+}
+
+.twingate-dot-pending {
+    background-color: #5e5c64;
+}
+
+.twingate-dot-reachable {
+    background-color: #33d17a;
+}
+
+.twingate-dot-unreachable {
+    background-color: #c01c28;
+}
+
+.twingate-resources-header {
+    color: #ffffff;
+}
+
+.twingate-resource-box {
+    spacing: 8px;
+}
+
+.twingate-resource-label {
+    color: #ffffff;
+    font-size: 0.85em;
+}
