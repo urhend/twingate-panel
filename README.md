@@ -56,6 +56,7 @@ dropdown menu that does it all.
 | 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
 | 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. |
 | 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
+| ⚙️ **In-menu preferences** | A settings icon in the dropdown header opens a native GTK4/libadwaita preferences window — no more editing source files. |
 | ⚡ **Fully asynchronous** | Every external command (`twingate`, `pkexec`, `ping`) runs via non-blocking `Gio.Subprocess` — the shell never freezes while it works. |
 | 🧹 **Clean lifecycle** | Timers, subprocesses, and menu state are fully torn down on disable — no leaks, no zombie polling. |
 
@@ -66,7 +67,7 @@ dropdown menu that does it all.
 │  [Twingate icon]                        │
 └──────────────┬───────────────────────────┘
                │ click → dropdown:
-               │   [Twingate wordmark]  ● status dot
+               │   [Twingate wordmark]  ● status dot   ⚙ (opens Preferences)
                │   ────────────────────────
                │   Connected  [ toggle ]
                │   ────────────────────────
@@ -120,14 +121,22 @@ Then log out and back in (or reload GNOME Shell on X11 with <kbd>Alt</kbd>+<kbd>
 
 ## Configuration
 
-There's no settings UI (yet) — everything lives as a few constants at the
-top of `extension.js`:
+Click the ⚙ icon in the top-right of the dropdown (opposite the Twingate
+logo) to open the preferences window — or run:
 
-| Constant | Default | Description |
+```bash
+gnome-extensions prefs twingate-panel@urhend
+```
+
+| Setting | Default | Description |
 |---|---|---|
-| `TWINGATE_BIN` | `/usr/bin/twingate` | Path to the Twingate CLI binary. |
-| `POLL_INTERVAL_SECONDS` | `5` | How often status and resources are refreshed. |
-| `USE_PKEXEC` | `true` | Set to `false` only if you've configured a scoped `NOPASSWD` sudoers rule for the exact `start`/`stop` commands (adjust the `argv` in `_runPrivileged()` to use `sudo -n` instead). |
+| Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
+| Use pkexec | `on` | Show a graphical polkit password prompt for connect/disconnect. Turn off only if you've configured a scoped `NOPASSWD` sudoers rule for the exact `start`/`stop` commands. |
+| Twingate binary path | `/usr/bin/twingate` | Path to the Twingate CLI binary. |
+
+Settings are stored via GSettings (schema
+`org.gnome.shell.extensions.twingate-panel`), so they persist across
+extension reloads and updates.
 
 ## Testing on Wayland
 
@@ -150,7 +159,11 @@ journalctl -f -o cat /usr/bin/gnome-shell
 twingate-panel/
 ├── metadata.json            # Extension manifest (uuid, name, shell-version…)
 ├── extension.js             # All logic: indicator, menu, polling, subprocesses
+├── prefs.js                 # GTK4/libadwaita preferences window
 ├── stylesheet.css           # Panel/menu styling (status dots, fonts, spacing)
+├── schemas/
+│   ├── org.gnome.shell.extensions.twingate-panel.gschema.xml
+│   └── gschemas.compiled    # Compiled schema (required at runtime)
 ├── icons/
 │   ├── twingate-panel.png   # Static top-bar icon
 │   └── twingate-wordmark.png# Logo shown in the dropdown header
@@ -162,7 +175,6 @@ twingate-panel/
 
 ## Known limitations
 
-- No preferences UI — configuration is source-level only, for now.
 - `start`/`stop` always prompt for a password via `pkexec` unless you set up
   a passwordless `sudoers` rule yourself (see [Configuration](#configuration)).
 - Resource reachability is a simple one-shot ICMP ping; it doesn't reflect

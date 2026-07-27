@@ -10,6 +10,15 @@
     background-repeat: no-repeat;
 }
 
+.twingate-settings-button {
+    border-radius: 6px;
+    padding: 4px;
+}
+
+.twingate-settings-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
 .twingate-status-dot {
     /* Exact pixel size is set in JS (DOT_SIZE) — keep this in sync if changed. */
     border-radius: 5px;

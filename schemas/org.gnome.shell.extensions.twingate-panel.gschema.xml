@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="twingate-panel">
+  <schema id="org.gnome.shell.extensions.twingate-panel" path="/org/gnome/shell/extensions/twingate-panel/">
+    <key name="poll-interval-seconds" type="i">
+      <default>5</default>
+      <range min="1" max="60"/>
+      <summary>Poll interval</summary>
+      <description>How often, in seconds, status and resources are refreshed.</description>
+    </key>
+    <key name="use-pkexec" type="b">
+      <default>true</default>
+      <summary>Use pkexec for privileged actions</summary>
+      <description>Run start/stop through pkexec (graphical polkit password prompt) instead of passwordless sudo.</description>
+    </key>
+    <key name="twingate-binary" type="s">
+      <default>"/usr/bin/twingate"</default>
+      <summary>Twingate binary path</summary>
+      <description>Path to the twingate CLI executable.</description>
+    </key>
+  </schema>
+</schemalist>

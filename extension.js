@@ -20,15 +20,10 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 
-// ---- Configuration -------------------------------------------------------
-
-const TWINGATE_BIN = '/usr/bin/twingate';
-const POLL_INTERVAL_SECONDS = 5;
-// If true, privileged actions (start/stop) go through pkexec, which shows a
-// graphical polkit password prompt every time. Set to false only if you have
-// configured a scoped NOPASSWD sudoers rule for these exact commands, and
-// swap the argv construction in _runPrivileged() to use `sudo -n` instead.
-const USE_PKEXEC = true;
+// ---- Configuration ---------------------------------------------------------
+// Runtime values (poll interval, pkexec vs sudo, binary path) live in
+// GSettings — see schemas/org.gnome.shell.extensions.twingate-panel.gschema.xml
+// and prefs.js. There are no hardcoded defaults here anymore.
 
 // ---- Status → UI mapping --------------------------------------------------
 // The panel icon is static; only the status dot in the popup header changes
@@ -142,10 +137,12 @@ function parseResources(stdout) {
 
 const Indicator = GObject.registerClass(
 class Indicator extends PanelMenu.Button {
-    _init(extensionPath) {
+    _init(extensionPath, settings, onOpenPreferences) {
         super._init(0.0, 'Twingate Panel', false);
 
         this._extensionPath = extensionPath;
+        this._settings = settings;
+        this._onOpenPreferences = onOpenPreferences;
         this._cancellable = new Gio.Cancellable();
         this._timeoutId = null;
         this._pendingRefreshIds = new Set();
@@ -164,7 +161,19 @@ class Indicator extends PanelMenu.Button {
         this._setState('unknown');
 
         this._refresh();
-        this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, POLL_INTERVAL_SECONDS, () => {
+        this._startPolling();
+        this._settingsChangedId = this._settings.connect('changed::poll-interval-seconds', () => {
+            this._startPolling();
+        });
+    }
+
+    _startPolling() {
+        if (this._timeoutId) {
+            GLib.Source.remove(this._timeoutId);
+            this._timeoutId = null;
+        }
+        const seconds = this._settings.get_int('poll-interval-seconds');
+        this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, seconds, () => {
             this._refresh();
             return GLib.SOURCE_CONTINUE;
         });
@@ -172,7 +181,7 @@ class Indicator extends PanelMenu.Button {
 
     _buildMenu() {
         const headerItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        const headerBox = new St.BoxLayout({style_class: 'twingate-header-box'});
+        const headerBox = new St.BoxLayout({style_class: 'twingate-header-box', x_expand: true});
 
         const wordmarkPath = GLib.build_filenamev([this._extensionPath, 'icons', 'twingate-wordmark.png']);
         const logo = new St.Widget({
@@ -183,6 +192,22 @@ class Indicator extends PanelMenu.Button {
 
         this._statusDot = createDot('twingate-dot-offline');
         headerBox.add_child(this._statusDot);
+
+        const spacer = new St.Widget({x_expand: true});
+        headerBox.add_child(spacer);
+
+        const settingsButton = new St.Button({
+            style_class: 'twingate-settings-button',
+            child: new St.Icon({
+                icon_name: 'preferences-system-symbolic',
+                style_class: 'popup-menu-icon',
+            }),
+        });
+        settingsButton.connect('clicked', () => {
+            this.menu.close();
+            this._onOpenPreferences?.();
+        });
+        headerBox.add_child(settingsButton);
 
         headerItem.add_child(headerBox);
         this.menu.addMenuItem(headerItem);
@@ -266,9 +291,10 @@ class Indicator extends PanelMenu.Button {
             return;
         this._busy = true;
 
-        const argv = USE_PKEXEC
-            ? ['pkexec', TWINGATE_BIN, action]
-            : ['sudo', '-n', TWINGATE_BIN, action];
+        const binary = this._settings.get_string('twingate-binary');
+        const argv = this._settings.get_boolean('use-pkexec')
+            ? ['pkexec', binary, action]
+            : ['sudo', '-n', binary, action];
 
         try {
             await runCommand(argv, this._cancellable);
@@ -296,9 +322,10 @@ class Indicator extends PanelMenu.Button {
     }
 
     async _refresh() {
+        const binary = this._settings.get_string('twingate-binary');
         let result;
         try {
-            result = await runCommand([TWINGATE_BIN, '-d', 'status'], this._cancellable);
+            result = await runCommand([binary, '-d', 'status'], this._cancellable);
         } catch (e) {
             if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 return;
@@ -321,9 +348,10 @@ class Indicator extends PanelMenu.Button {
     }
 
     async _refreshResources() {
+        const binary = this._settings.get_string('twingate-binary');
         let result;
         try {
-            result = await runCommand([TWINGATE_BIN, '-d', 'resources'], this._cancellable);
+            result = await runCommand([binary, '-d', 'resources'], this._cancellable);
         } catch (e) {
             if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 return;
@@ -343,6 +371,11 @@ class Indicator extends PanelMenu.Button {
             GLib.Source.remove(id);
         this._pendingRefreshIds.clear();
 
+        if (this._settingsChangedId) {
+            this._settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = null;
+        }
+
         this._cancellable.cancel();
 
         super.destroy();
@@ -351,7 +384,7 @@ class Indicator extends PanelMenu.Button {
 
 export default class TwingatePanelExtension extends Extension {
     enable() {
-        this._indicator = new Indicator(this.path);
+        this._indicator = new Indicator(this.path, this.getSettings(), () => this.openPreferences());
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 

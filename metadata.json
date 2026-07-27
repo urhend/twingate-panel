@@ -3,6 +3,7 @@
     "name": "Twingate Panel",
     "description": "Control the Twingate VPN client (connect/disconnect, status, resources) from the GNOME top panel.",
     "url": "https://github.com/urhend/twingate-panel",
+    "settings-schema": "org.gnome.shell.extensions.twingate-panel",
     "shell-version": ["50"],
     "version": 1
 }
