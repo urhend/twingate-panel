@@ -217,26 +217,33 @@ class Indicator extends PanelMenu.Button {
         const headerItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const headerBox = new St.BoxLayout({style_class: 'twingate-header-box', x_expand: true});
 
-        const logoBox = new St.BoxLayout({style_class: 'twingate-logo-box', vertical: true});
+        const infoBox = new St.BoxLayout({style_class: 'twingate-info-box', vertical: true});
 
+        const logoContainer = new St.BoxLayout();
         const wordmarkPath = GLib.build_filenamev([this._extensionPath, 'icons', 'twingate-wordmark.png']);
         const logo = new St.Widget({
             style_class: 'twingate-header-logo',
             style: `background-image: url("file://${wordmarkPath}");`,
         });
-        logoBox.add_child(logo);
+        logoContainer.add_child(logo);
+        infoBox.add_child(logoContainer);
+
+        const subtitleRow = new St.BoxLayout({style_class: 'twingate-subtitle-row'});
 
         this._networkLabel = new St.Label({
             style_class: 'twingate-network-label',
             text: '',
             visible: false,
+            y_align: Clutter.ActorAlign.CENTER,
         });
-        logoBox.add_child(this._networkLabel);
-
-        headerBox.add_child(logoBox);
+        subtitleRow.add_child(this._networkLabel);
 
         this._statusDot = createDot('twingate-dot-offline');
-        headerBox.add_child(this._statusDot);
+        subtitleRow.add_child(this._statusDot);
+
+        infoBox.add_child(subtitleRow);
+
+        headerBox.add_child(infoBox);
 
         const spacer = new St.Widget({x_expand: true});
         headerBox.add_child(spacer);
