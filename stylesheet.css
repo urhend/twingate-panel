@@ -3,24 +3,13 @@
     padding: 4px 8px;
 }
 
-.twingate-info-box {
-    spacing: 2px;
+.twingate-network-title {
+    color: #ffffff;
+    font-size: 1em;
 }
 
-.twingate-header-logo {
-    width: 80px;
-    height: 18px;
-    background-size: contain;
-    background-repeat: no-repeat;
-}
-
-.twingate-subtitle-row {
-    spacing: 6px;
-}
-
-.twingate-network-label {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 0.7em;
+.twingate-network-title-connected {
+    font-weight: bold;
 }
 
 .twingate-settings-button {
@@ -34,19 +23,7 @@
 
 .twingate-status-dot {
     /* Exact pixel size is set in JS (DOT_SIZE) — keep this in sync if changed. */
-    border-radius: 5px;
-}
-
-.twingate-dot-offline {
-    background-color: #9a9996;
-}
-
-.twingate-dot-connecting {
-    background-color: #f5c211;
-}
-
-.twingate-dot-online {
-    background-color: #33d17a;
+    border-radius: 3.5px;
 }
 
 .twingate-dot-pending {

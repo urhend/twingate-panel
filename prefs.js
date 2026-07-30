@@ -39,5 +39,27 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
         });
         settings.bind('twingate-binary', binaryRow, 'text', Gio.SettingsBindFlags.DEFAULT);
         group.add(binaryRow);
+
+        const pingGroup = new Adw.PreferencesGroup({
+            title: 'Resource pings',
+            description: 'Reachability check for each resource in the dropdown, independent of the status poll interval.',
+        });
+        page.add(pingGroup);
+
+        const pingEnabledRow = new Adw.SwitchRow({
+            title: 'Enable pings',
+            subtitle: 'Ping each resource periodically and show a reachability dot. Turn off to skip pinging entirely.',
+        });
+        settings.bind('ping-enabled', pingEnabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        pingGroup.add(pingEnabledRow);
+
+        const pingIntervalRow = new Adw.SpinRow({
+            title: 'Ping interval',
+            subtitle: 'How often, in seconds, resource reachability is re-checked',
+            adjustment: new Gtk.Adjustment({lower: 1, upper: 300, step_increment: 1}),
+        });
+        settings.bind('ping-interval-seconds', pingIntervalRow, 'value', Gio.SettingsBindFlags.DEFAULT);
+        settings.bind('ping-enabled', pingIntervalRow, 'sensitive', Gio.SettingsBindFlags.GET);
+        pingGroup.add(pingIntervalRow);
     }
 }

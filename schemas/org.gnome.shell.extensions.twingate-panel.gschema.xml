@@ -17,5 +17,16 @@
       <summary>Twingate binary path</summary>
       <description>Path to the twingate CLI executable.</description>
     </key>
+    <key name="ping-enabled" type="b">
+      <default>true</default>
+      <summary>Enable resource reachability pings</summary>
+      <description>Periodically ping each authorized resource's address to show a reachability dot. Disable to skip pinging entirely.</description>
+    </key>
+    <key name="ping-interval-seconds" type="i">
+      <default>5</default>
+      <range min="1" max="300"/>
+      <summary>Ping interval</summary>
+      <description>How often, in seconds, resource reachability is re-checked via ping. Independent of the status poll interval.</description>
+    </key>
   </schema>
 </schemalist>
