@@ -132,8 +132,8 @@ Then log out and back in (or reload GNOME Shell on X11 with <kbd>Alt</kbd>+<kbd>
 
 ## Configuration
 
-Click the ⚙ icon in the top-right of the dropdown (opposite the Twingate
-logo) to open the preferences window — or run:
+Click the ⚙ icon in the top-right of the dropdown header (next to the
+network name) to open the preferences window — or run:
 
 ```bash
 gnome-extensions prefs twingate-panel@urhend
@@ -144,6 +144,9 @@ gnome-extensions prefs twingate-panel@urhend
 | Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
 | Use pkexec | `on` | Show a graphical polkit password prompt for connect/disconnect. Turn off only if you've configured a scoped `NOPASSWD` sudoers rule for the exact `start`/`stop` commands. |
 | Twingate binary path | `/usr/bin/twingate` | Path to the Twingate CLI binary. |
+| Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
+| Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
+| Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
 
 Settings are stored via GSettings (schema
 `org.gnome.shell.extensions.twingate-panel`), so they persist across
@@ -178,7 +181,8 @@ twingate-panel/
 │   └── gschemas.compiled    # Compiled schema (required at runtime)
 ├── icons/
 │   ├── twingate-panel.png   # Static top-bar icon
-│   └── twingate-wordmark.png# Logo shown in the dropdown header
+│   └── twingate-wordmark.png# Unused for now (dropped in favor of the
+│                            # network name); kept for a possible future revision
 ├── screenshots/
 │   └── menu.png             # Dropdown menu preview (used in this README)
 ├── LICENSE                  # GPL-3.0-or-later
