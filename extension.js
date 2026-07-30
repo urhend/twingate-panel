@@ -27,8 +27,7 @@ Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
 // ---- Status → UI mapping --------------------------------------------------
 // The panel icon is static; the connection status is shown as a colored
-// dot glyph (via Pango markup) prefixed to the network name on the
-// "Connected" switch row. Colors match stylesheet.css's dot classes.
+// dot next to the network name in the dropdown header.
 
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
@@ -41,6 +40,16 @@ const STATUS_INFO = {
     dotColor: "#f5c211",
   },
   unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
+};
+
+// Coarser grouping used only for deciding when to send a notification —
+// "connecting"/"authenticating" are transitional and intentionally absent,
+// so they neither trigger a notification nor reset the baseline.
+const NOTIFY_CATEGORY = {
+  online: "connected",
+  "not-running": "disconnected",
+  offline: "disconnected",
+  unknown: "error",
 };
 
 const PING_CLASSES = [
@@ -191,6 +200,7 @@ const Indicator = GObject.registerClass(
       this._busy = false;
       this._resourceGeneration = 0;
       this._resourceDots = [];
+      this._previousCategory = null;
 
       const iconPath = GLib.build_filenamev([
         extensionPath,
@@ -479,19 +489,51 @@ const Indicator = GObject.registerClass(
       } catch (e) {
         if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
         this._setState("unknown");
+        this._maybeNotifyStateChange("unknown");
         return;
       }
 
       if (!result.success && result.stdout.length === 0) {
         this._setState("unknown");
+        this._maybeNotifyStateChange("unknown");
         return;
       }
 
       const token = parseStatusToken(result.stdout);
       this._setState(token);
+      this._maybeNotifyStateChange(token);
 
       if (statusInfoFor(token).connected) this._refreshResources();
       else this._setResources([]);
+    }
+
+    /**
+     * Sends a native notification when the connection category (connected /
+     * disconnected / error) actually changes — never on every poll tick, and
+     * never for the very first status check after startup (that's just
+     * discovering the current state, not a change). Transitional tokens
+     * (connecting/authenticating) have no category and are ignored, but
+     * don't reset the baseline, so a later real change is still caught.
+     */
+    _maybeNotifyStateChange(token) {
+      const category = NOTIFY_CATEGORY[token] ?? null;
+      if (
+        category &&
+        this._previousCategory !== null &&
+        category !== this._previousCategory
+      ) {
+        const network = this._networkNameLabel?.text || "Twingate";
+        if (category === "connected")
+          Main.notify("Twingate", `Connected to ${network}`);
+        else if (category === "disconnected")
+          Main.notify("Twingate", "Disconnected");
+        else if (category === "error")
+          Main.notifyError(
+            "Twingate",
+            "Something went wrong — check the connection status.",
+          );
+      }
+      if (category) this._previousCategory = category;
     }
 
     async _refreshResources() {
