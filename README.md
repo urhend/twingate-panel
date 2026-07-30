@@ -53,10 +53,12 @@ dropdown menu that does it all.
 
 | | |
 |---|---|
-| 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header. |
-| 🌐 **Network name subtitle** | Shows your Twingate network name (e.g. `urhNET`) under the logo, read from `twingate account list`. |
+| 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header, next to the network name. |
+| 🌐 **Network name** | Shows your Twingate network name (e.g. `network-name`), bold when connected, read from `twingate account list`. |
 | 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
 | 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. |
+| 🔍 **Resource search** | A magnifier button next to "Resources" reveals a compact filter box (name + address); auto-collapses when the dropdown closes. |
+| 🔔 **Connection notifications** | Native GNOME notifications on real connect/disconnect/error transitions, not on every poll — toggleable, and automatically silenced by GNOME's own Do Not Disturb setting. |
 | 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
 | ⚙️ **In-menu preferences** | A settings icon in the dropdown header opens a native GTK4/libadwaita preferences window — no more editing source files. |
 | ⚡ **Fully asynchronous** | Every external command (`twingate`, `pkexec`, `ping`) runs via non-blocking `Gio.Subprocess` — the shell never freezes while it works. |
