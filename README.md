@@ -69,22 +69,28 @@ dropdown menu that does it all.
 │  [Twingate icon]                        │
 └──────────────┬───────────────────────────┘
                │ click → dropdown:
-               │   [Twingate wordmark]   ● status dot   ⚙ (opens Preferences)
-               │   [network name]
+               │   network-name  ●                    ⚙ (opens Preferences)
                │   ────────────────────────
                │   Connected  [ toggle ]
                │   ────────────────────────
-               │   Resources
+               │   Resources                    🔍 (toggles search)
                │     server-a · 192.168.0.10        ●
                │     server-b · 192.168.0.20        ●
                ▼
-      Poll loop (every 5s while enabled)
-               │
-               ▼
-   twingate -d status   →  updates status dot
-   twingate -d resources →  updates resource list (only while connected)
-   ping -c 1 -W 1 <ip>   →  updates each resource's reachability dot
+   twingate account list  →  network name (fetched once at startup)
+   twingate -d status      →  status dot + bold network name when connected;
+                              sends a notification on real connect/disconnect/
+                              error transitions (never on repeated polls)
+   twingate -d resources    →  resource list (only while connected)
+   ping -c 1 -W 1 <ip>      →  reachability dot per resource, on its own
+                              independent interval — can be disabled entirely
 ```
+
+Status polling uses the configured interval while the dropdown is open, and
+backs off to 6× slower while it's closed — reopening the menu triggers an
+immediate refresh. Typing in the resource search box filters by name and
+address without re-fetching or re-pinging anything; closing the dropdown
+clears the search automatically.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
