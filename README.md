@@ -10,6 +10,7 @@
 ![GJS](https://img.shields.io/badge/GJS-ESM-f6d32d)
 ![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+[![CI](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml)
 
 [Repository](https://github.com/urhend/twingate-panel)
 
@@ -159,6 +160,7 @@ journalctl -f -o cat /usr/bin/gnome-shell
 
 ```
 twingate-panel/
+├── .github/workflows/ci.yml # CI: JS syntax, metadata.json, schema compile
 ├── metadata.json            # Extension manifest (uuid, name, shell-version…)
 ├── extension.js             # All logic: indicator, menu, polling, subprocesses
 ├── prefs.js                 # GTK4/libadwaita preferences window
