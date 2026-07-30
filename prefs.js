@@ -40,6 +40,13 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
         settings.bind('twingate-binary', binaryRow, 'text', Gio.SettingsBindFlags.DEFAULT);
         group.add(binaryRow);
 
+        const notificationsRow = new Adw.SwitchRow({
+            title: 'Enable notifications',
+            subtitle: 'Show a notification when the connection state changes (connected/disconnected/error).',
+        });
+        settings.bind('notifications-enabled', notificationsRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        group.add(notificationsRow);
+
         const pingGroup = new Adw.PreferencesGroup({
             title: 'Resource pings',
             description: 'Reachability check for each resource in the dropdown, independent of the status poll interval.',

@@ -199,7 +199,11 @@ const Indicator = GObject.registerClass(
       this._suppressToggle = false;
       this._busy = false;
       this._resourceGeneration = 0;
-      this._resourceDots = [];
+      this._resourceDots = new Map();
+      this._allResources = [];
+      this._resourceFilter = "";
+      this._searchToggledOn = false;
+      this._pingStatus = new Map();
       this._previousCategory = null;
 
       const iconPath = GLib.build_filenamev([
@@ -225,6 +229,7 @@ const Indicator = GObject.registerClass(
         "open-state-changed",
         (_menu, isOpen) => {
           if (isOpen) this._refresh();
+          else this._setSearchVisible(false);
           this._startPolling();
         },
       );
@@ -300,16 +305,28 @@ const Indicator = GObject.registerClass(
       );
     }
 
+    /**
+     * Pings every known resource (regardless of the current search filter),
+     * so `_pingStatus` stays fresh even for rows hidden by the filter. Only
+     * updates a dot actor live if that address happens to be currently
+     * rendered (present in `_resourceDots`).
+     */
     _pingAllResources(generation) {
-      for (const { address, dot } of this._resourceDots) {
+      for (const { address } of this._allResources) {
         if (generation !== this._resourceGeneration) return;
         pingAddress(address, this._cancellable)
           .then((reachable) => {
             if (generation !== this._resourceGeneration) return;
-            for (const cls of PING_CLASSES) dot.remove_style_class_name(cls);
-            dot.add_style_class_name(
-              reachable ? "twingate-dot-reachable" : "twingate-dot-unreachable",
-            );
+            this._pingStatus.set(address, reachable);
+            const dot = this._resourceDots.get(address);
+            if (dot) {
+              for (const cls of PING_CLASSES) dot.remove_style_class_name(cls);
+              dot.add_style_class_name(
+                reachable
+                  ? "twingate-dot-reachable"
+                  : "twingate-dot-unreachable",
+              );
+            }
           })
           .catch(() => {});
       }
@@ -343,7 +360,7 @@ const Indicator = GObject.registerClass(
         y_align: Clutter.ActorAlign.START,
         child: new St.Icon({
           icon_name: "preferences-system-symbolic",
-          style_class: "popup-menu-icon",
+          style_class: "popup-menu-icon twingate-header-icon",
         }),
       });
       settingsButton.connect("clicked", () => {
@@ -365,15 +382,59 @@ const Indicator = GObject.registerClass(
       this._resourcesSeparator = new PopupMenu.PopupSeparatorMenuItem();
       this.menu.addMenuItem(this._resourcesSeparator);
 
-      this._resourcesHeader = new PopupMenu.PopupMenuItem("Resources", {
-        reactive: false,
+      this._resourcesHeader = new PopupMenu.PopupBaseMenuItem({
+        reactive: true,
         can_focus: false,
+        activate: false,
       });
-      this._resourcesHeader.label.add_style_class_name(
-        "twingate-resources-header",
-      );
+      const resourcesHeaderBox = new St.BoxLayout({ x_expand: true });
+
+      const resourcesLabel = new St.Label({
+        style_class: "twingate-resources-header",
+        text: "Resources",
+        y_align: Clutter.ActorAlign.CENTER,
+        x_expand: true,
+      });
+      resourcesHeaderBox.add_child(resourcesLabel);
+
+      const searchToggleButton = new St.Button({
+        style_class: "twingate-settings-button",
+        child: new St.Icon({
+          icon_name: "edit-find-symbolic",
+          style_class: "popup-menu-icon twingate-header-icon",
+        }),
+      });
+      searchToggleButton.connect("clicked", () => {
+        this._setSearchVisible(!this._resourceSearchItem.visible);
+      });
+      resourcesHeaderBox.add_child(searchToggleButton);
+
+      this._resourcesHeader.add_child(resourcesHeaderBox);
       this._resourcesHeader.visible = false;
       this.menu.addMenuItem(this._resourcesHeader);
+
+      const searchItem = new PopupMenu.PopupBaseMenuItem({
+        reactive: true,
+        can_focus: false,
+        activate: false,
+      });
+      this._searchEntry = new St.Entry({
+        style_class: "twingate-search-entry",
+        hint_text: "Search resources…",
+        x_expand: true,
+        can_focus: true,
+      });
+      this._searchEntry.clutter_text.connect("text-changed", () => {
+        this._resourceFilter = this._searchEntry
+          .get_text()
+          .trim()
+          .toLowerCase();
+        this._renderResourceItems();
+      });
+      searchItem.add_child(this._searchEntry);
+      searchItem.visible = false;
+      this.menu.addMenuItem(searchItem);
+      this._resourceSearchItem = searchItem;
 
       this._resourcesSection = new PopupMenu.PopupMenuSection();
       this.menu.addMenuItem(this._resourcesSection);
@@ -399,16 +460,49 @@ const Indicator = GObject.registerClass(
     }
 
     _setResources(resources) {
-      this._resourcesSection.removeAll();
-      this._resourcesHeader.visible = resources.length > 0;
-
-      this._resourceGeneration++;
-      const generation = this._resourceGeneration;
-      this._resourceDots = [];
+      this._allResources = resources;
+      if (resources.length === 0) this._pingStatus.clear();
+      this._renderResourceItems();
 
       const pingEnabled = this._settings.get_boolean("ping-enabled");
+      if (pingEnabled && resources.length > 0)
+        this._pingAllResources(this._resourceGeneration);
+    }
 
-      for (const { name, address } of resources) {
+    _setSearchVisible(visible) {
+      this._searchToggledOn = visible;
+      if (!visible) this._searchEntry.set_text("");
+      this._resourceSearchItem.visible =
+        visible && this._allResources.length > 0;
+      if (visible) this._searchEntry.grab_key_focus();
+    }
+
+    /**
+     * Rebuilds the visible resource list from `_allResources`, filtered by
+     * `_resourceFilter` (case-insensitive substring on name + address).
+     * Dot colors come from the persisted `_pingStatus` map rather than
+     * always starting "pending" — so filtering doesn't make already-known
+     * dots flicker gray again.
+     */
+    _renderResourceItems() {
+      this._resourcesSection.removeAll();
+
+      const hasResources = this._allResources.length > 0;
+      this._resourcesHeader.visible = hasResources;
+      this._resourceSearchItem.visible = hasResources && this._searchToggledOn;
+
+      this._resourceGeneration++;
+      this._resourceDots.clear();
+
+      const pingEnabled = this._settings.get_boolean("ping-enabled");
+      const filter = this._resourceFilter;
+      const filtered = filter
+        ? this._allResources.filter(({ name, address }) =>
+            `${name} ${address}`.toLowerCase().includes(filter),
+          )
+        : this._allResources;
+
+      for (const { name, address } of filtered) {
         const item = new PopupMenu.PopupBaseMenuItem({
           reactive: false,
           can_focus: false,
@@ -426,18 +520,22 @@ const Indicator = GObject.registerClass(
         });
         box.add_child(label);
 
-        const pingDot = createDot("twingate-dot-pending");
+        const status = this._pingStatus.get(address);
+        const pingClass =
+          status === true
+            ? "twingate-dot-reachable"
+            : status === false
+              ? "twingate-dot-unreachable"
+              : "twingate-dot-pending";
+        const pingDot = createDot(pingClass);
         pingDot.visible = pingEnabled;
         box.add_child(pingDot);
 
         item.add_child(box);
         this._resourcesSection.addMenuItem(item);
 
-        if (pingEnabled) this._resourceDots.push({ address, dot: pingDot });
+        if (pingEnabled) this._resourceDots.set(address, pingDot);
       }
-
-      if (pingEnabled && this._resourceDots.length > 0)
-        this._pingAllResources(generation);
     }
 
     _onToggle(wantConnected) {
@@ -520,7 +618,8 @@ const Indicator = GObject.registerClass(
       if (
         category &&
         this._previousCategory !== null &&
-        category !== this._previousCategory
+        category !== this._previousCategory &&
+        this._settings.get_boolean("notifications-enabled")
       ) {
         const network = this._networkNameLabel?.text || "Twingate";
         if (category === "connected")
@@ -564,7 +663,7 @@ const Indicator = GObject.registerClass(
       }
       for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
       this._pendingRefreshIds.clear();
-      this._resourceDots = [];
+      this._resourceDots.clear();
 
       if (this._menuOpenStateId) {
         this.menu.disconnect(this._menuOpenStateId);

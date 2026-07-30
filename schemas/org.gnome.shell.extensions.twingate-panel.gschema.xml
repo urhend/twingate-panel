@@ -17,6 +17,11 @@
       <summary>Twingate binary path</summary>
       <description>Path to the twingate CLI executable.</description>
     </key>
+    <key name="notifications-enabled" type="b">
+      <default>true</default>
+      <summary>Enable connection notifications</summary>
+      <description>Send a native notification when the connection state actually changes (connected/disconnected/error). Note: GNOME's own Do Not Disturb setting already suppresses notification banners system-wide regardless of this setting.</description>
+    </key>
     <key name="ping-enabled" type="b">
       <default>true</default>
       <summary>Enable resource reachability pings</summary>

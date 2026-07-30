@@ -21,6 +21,10 @@
     background-color: rgba(255, 255, 255, 0.1);
 }
 
+.twingate-header-icon {
+    color: #ffffff;
+}
+
 .twingate-status-dot {
     /* Exact pixel size is set in JS (DOT_SIZE) — keep this in sync if changed. */
     border-radius: 3.5px;
@@ -40,6 +44,13 @@
 
 .twingate-resources-header {
     color: #ffffff;
+}
+
+.twingate-search-entry {
+    margin: 2px 8px;
+    padding: 2px 8px;
+    font-size: 0.85em;
+    min-height: 0;
 }
 
 .twingate-resource-box {
