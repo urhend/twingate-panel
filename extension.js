@@ -123,6 +123,23 @@ async function pingAddress(address, cancellable) {
  * When disconnected, the CLI prints an explanatory sentence instead of a
  * table — that yields no rows here, which is the desired behavior.
  */
+/**
+ * `twingate account list` prints a tab-separated table:
+ *   EMAIL <TAB> NETWORK <TAB> NETWORK URL
+ * Works even while disconnected. We only want the network name of the
+ * first (typically only) account.
+ */
+function parseNetworkName(stdout) {
+    const lines = (stdout ?? '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    for (const line of lines) {
+        const fields = line.split('\t').map(f => f.trim());
+        if (fields.length < 2 || /^email$/i.test(fields[0]))
+            continue;
+        return fields[1];
+    }
+    return null;
+}
+
 function parseResources(stdout) {
     const lines = (stdout ?? '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const rows = [];
@@ -162,9 +179,26 @@ class Indicator extends PanelMenu.Button {
 
         this._refresh();
         this._startPolling();
+        this._loadNetworkName();
         this._settingsChangedId = this._settings.connect('changed::poll-interval-seconds', () => {
             this._startPolling();
         });
+    }
+
+    async _loadNetworkName() {
+        const binary = this._settings.get_string('twingate-binary');
+        let result;
+        try {
+            result = await runCommand([binary, '-d', 'account', 'list'], this._cancellable);
+        } catch (e) {
+            return;
+        }
+
+        const name = parseNetworkName(result.stdout);
+        if (name) {
+            this._networkLabel.text = name;
+            this._networkLabel.visible = true;
+        }
     }
 
     _startPolling() {
@@ -183,12 +217,23 @@ class Indicator extends PanelMenu.Button {
         const headerItem = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const headerBox = new St.BoxLayout({style_class: 'twingate-header-box', x_expand: true});
 
+        const logoBox = new St.BoxLayout({style_class: 'twingate-logo-box', vertical: true});
+
         const wordmarkPath = GLib.build_filenamev([this._extensionPath, 'icons', 'twingate-wordmark.png']);
         const logo = new St.Widget({
             style_class: 'twingate-header-logo',
             style: `background-image: url("file://${wordmarkPath}");`,
         });
-        headerBox.add_child(logo);
+        logoBox.add_child(logo);
+
+        this._networkLabel = new St.Label({
+            style_class: 'twingate-network-label',
+            text: '',
+            visible: false,
+        });
+        logoBox.add_child(this._networkLabel);
+
+        headerBox.add_child(logoBox);
 
         this._statusDot = createDot('twingate-dot-offline');
         headerBox.add_child(this._statusDot);

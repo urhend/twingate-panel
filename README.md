@@ -53,6 +53,7 @@ dropdown menu that does it all.
 | | |
 |---|---|
 | 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header. |
+| 🌐 **Network name subtitle** | Shows your Twingate network name (e.g. `urhNET`) under the logo, read from `twingate account list`. |
 | 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
 | 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. |
 | 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
@@ -67,7 +68,8 @@ dropdown menu that does it all.
 │  [Twingate icon]                        │
 └──────────────┬───────────────────────────┘
                │ click → dropdown:
-               │   [Twingate wordmark]  ● status dot   ⚙ (opens Preferences)
+               │   [Twingate wordmark]   ● status dot   ⚙ (opens Preferences)
+               │   [network name]
                │   ────────────────────────
                │   Connected  [ toggle ]
                │   ────────────────────────
