@@ -26,7 +26,7 @@
 }
 
 .twingate-status-dot {
-    /* Exact pixel size is set in JS (DOT_SIZE) — keep this in sync if changed. */
+    /* size comes from DOT_SIZE in JS, keep these matching if you change it */
     border-radius: 3.5px;
 }
 

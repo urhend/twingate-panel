@@ -27,15 +27,12 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
         settings.bind('poll-interval-seconds', pollRow, 'value', Gio.SettingsBindFlags.DEFAULT);
         group.add(pollRow);
 
-        const pkexecRow = new Adw.SwitchRow({
-            title: 'Use pkexec',
-            subtitle: 'Show a graphical password prompt for connect/disconnect. Turn off only if you configured passwordless sudo for these commands.',
-        });
-        settings.bind('use-pkexec', pkexecRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        group.add(pkexecRow);
-
         const binaryRow = new Adw.EntryRow({
             title: 'Twingate binary path',
+            tooltip_text:
+                'Used for status/resources/account checks only. Connect ' +
+                'and disconnect always run /usr/bin/twingate directly via ' +
+                'pkexec, regardless of this setting.',
         });
         settings.bind('twingate-binary', binaryRow, 'text', Gio.SettingsBindFlags.DEFAULT);
         group.add(binaryRow);

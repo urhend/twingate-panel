@@ -142,8 +142,7 @@ gnome-extensions prefs twingate-panel@urhend
 | Setting | Default | Description |
 |---|---|---|
 | Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
-| Use pkexec | `on` | Show a graphical polkit password prompt for connect/disconnect. Turn off only if you've configured a scoped `NOPASSWD` sudoers rule for the exact `start`/`stop` commands. |
-| Twingate binary path | `/usr/bin/twingate` | Path to the Twingate CLI binary. |
+| Twingate binary path | `/usr/bin/twingate` | Path to the Twingate CLI binary, used for read-only status/resources/account checks only. Connect/disconnect always run `/usr/bin/twingate` directly via `pkexec`, independent of this setting — see [Known limitations](#known-limitations). |
 | Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
 | Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
 | Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
@@ -191,8 +190,12 @@ twingate-panel/
 
 ## Known limitations
 
-- `start`/`stop` always prompt for a password via `pkexec` unless you set up
-  a passwordless `sudoers` rule yourself (see [Configuration](#configuration)).
+- `start`/`stop` always prompt for a password via `pkexec` — there is no
+  passwordless option. This is intentional: `sudo` is disallowed entirely
+  for privileged subprocesses under
+  [GNOME's extension review guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html#privileged-subprocess-must-not-be-user-writable),
+  and the binary path used for that call is hardcoded rather than
+  configurable, for the same reason.
 - Resource reachability is a simple one-shot ICMP ping; it doesn't reflect
   Twingate's own internal routing/health checks.
 

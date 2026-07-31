@@ -20,15 +20,13 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 
 Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
-// ---- Configuration ---------------------------------------------------------
-// Runtime values (poll interval, pkexec vs sudo, binary path) live in
-// GSettings — see schemas/org.gnome.shell.extensions.twingate-panel.gschema.xml
-// and prefs.js. There are no hardcoded defaults here anymore.
+// Most settings live in GSettings (schemas/ + prefs.js), but not this one.
+// start/stop run as root through pkexec, and GSettings can be rewritten by
+// any local process, so this path has to stay hardcoded.
+const PRIVILEGED_TWINGATE_BIN = "/usr/bin/twingate";
 
-// ---- Status → UI mapping --------------------------------------------------
-// The panel icon is static; the connection status is shown as a colored
-// dot next to the network name in the dropdown header.
-
+// panel icon never changes, connection status is just a dot next to the
+// network name in the dropdown
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
   offline: { label: "Offline", connected: false, dotColor: "#9a9996" },
@@ -42,9 +40,9 @@ const STATUS_INFO = {
   unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
 };
 
-// Coarser grouping used only for deciding when to send a notification —
-// "connecting"/"authenticating" are transitional and intentionally absent,
-// so they neither trigger a notification nor reset the baseline.
+// just for deciding when to notify. connecting/authenticating aren't in
+// here on purpose since they're transitional — no notification, and they
+// don't touch the baseline either
 const NOTIFY_CATEGORY = {
   online: "connected",
   "not-running": "disconnected",
@@ -58,17 +56,13 @@ const PING_CLASSES = [
   "twingate-dot-unreachable",
 ];
 const DOT_SIZE = 7;
-// When the menu is closed, nobody is looking at the status dot, so poll
-// less often — this many times slower than the configured interval.
+// nobody's watching the dot when the menu's closed, so slow way down —
+// this many times slower than whatever the user set
 const BACKGROUND_POLL_MULTIPLIER = 6;
 
-/**
- * A plain St.Widget with no content has a natural size of 0x0, so CSS
- * width/height alone can be unreliable inside a BoxLayout (it may stretch
- * to fill leftover space instead of staying a fixed-size circle). Forcing
- * the actor size in JS, and disabling expand, guarantees a true circle
- * regardless of theme/layout quirks.
- */
+// empty St.Widgets default to 0x0, so CSS width/height alone doesn't
+// really hold up inside a BoxLayout — it just stretches instead of
+// staying a circle. set_size() + turning off expand actually works though
 function createDot(extraClass) {
   const dot = new St.Widget({
     style_class: `twingate-status-dot ${extraClass}`,
@@ -84,11 +78,8 @@ function statusInfoFor(token) {
   return STATUS_INFO[token] ?? STATUS_INFO.unknown;
 }
 
-/**
- * Run an external command asynchronously (never blocks the shell).
- * Returns {success, stdout, stderr}. Rethrows on cancellation so callers
- * can stop scheduling further work.
- */
+// runs argv without blocking the shell. rethrows if it gets cancelled,
+// otherwise just stuffs whatever went wrong into {success: false, ...}
 async function runCommand(argv, cancellable) {
   let proc;
   try {
@@ -123,13 +114,13 @@ function parseStatusToken(stdout) {
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
-  // Be defensive: lowercase, take the first "word-ish" token in case the
-  // CLI prepends extra text in some version.
+  // being paranoid here — lowercase it, grab the first token, in case some
+  // CLI version prints extra stuff before the actual status
   const token = firstLine.toLowerCase().split(/\s+/)[0] ?? "";
   return token in STATUS_INFO ? token : "unknown";
 }
 
-/** Returns true if a single ICMP echo request got a reply within 1s. */
+// true if one ping got a reply within a second, that's the whole check
 async function pingAddress(address, cancellable) {
   try {
     const result = await runCommand(
@@ -143,20 +134,10 @@ async function pingAddress(address, cancellable) {
   }
 }
 
-/**
- * `twingate resources` prints a tab-separated table:
- *   RESOURCE NAME <TAB> ADDRESS <TAB> ALIAS <TAB> AUTH STATUS
- *   Home Assistant<TAB>192.168.0.211<TAB>-<TAB>
- * We only want name + address; the header row and other columns are dropped.
- * When disconnected, the CLI prints an explanatory sentence instead of a
- * table — that yields no rows here, which is the desired behavior.
- */
-/**
- * `twingate account list` prints a tab-separated table:
- *   EMAIL <TAB> NETWORK <TAB> NETWORK URL
- * Works even while disconnected. We only want the network name of the
- * first (typically only) account.
- */
+// `twingate account list` spits out a tab-separated table:
+// EMAIL <TAB> NETWORK <TAB> NETWORK URL
+// works fine while disconnected too. we just grab the network name off
+// the first account, most people only have the one anyway
 function parseNetworkName(stdout) {
   const lines = (stdout ?? "")
     .split("\n")
@@ -170,6 +151,17 @@ function parseNetworkName(stdout) {
   return null;
 }
 
+// anything that doesn't match this gets dropped down in parseResources().
+// mostly here so a leading '-' can't get read as a ping flag instead of
+// an actual target
+const VALID_ADDRESS_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]*$/;
+
+// `twingate resources` prints a tab-separated table:
+// RESOURCE NAME <TAB> ADDRESS <TAB> ALIAS <TAB> AUTH STATUS
+// Home Assistant<TAB>192.168.0.211<TAB>-<TAB>
+// we only care about name + address, header row and extra columns get
+// dropped. when disconnected it just prints a sentence instead of a
+// table, so this returns nothing — which is exactly what we want
 function parseResources(stdout) {
   const lines = (stdout ?? "")
     .split("\n")
@@ -179,7 +171,9 @@ function parseResources(stdout) {
   for (const line of lines) {
     const fields = line.split("\t").map((f) => f.trim());
     if (fields.length < 2 || /^resource name$/i.test(fields[0])) continue;
-    rows.push({ name: fields[0], address: fields[1] });
+    const address = fields[1];
+    if (!VALID_ADDRESS_RE.test(address)) continue;
+    rows.push({ name: fields[0], address });
   }
   return rows;
 }
@@ -305,12 +299,9 @@ const Indicator = GObject.registerClass(
       );
     }
 
-    /**
-     * Pings every known resource (regardless of the current search filter),
-     * so `_pingStatus` stays fresh even for rows hidden by the filter. Only
-     * updates a dot actor live if that address happens to be currently
-     * rendered (present in `_resourceDots`).
-     */
+    // pings everything we know about, filtered or not, so _pingStatus
+    // stays current even for rows the search box is hiding. only touches
+    // a dot actor if it's actually on screen right now
     _pingAllResources(generation) {
       for (const { address } of this._allResources) {
         if (generation !== this._resourceGeneration) return;
@@ -477,13 +468,9 @@ const Indicator = GObject.registerClass(
       if (visible) this._searchEntry.grab_key_focus();
     }
 
-    /**
-     * Rebuilds the visible resource list from `_allResources`, filtered by
-     * `_resourceFilter` (case-insensitive substring on name + address).
-     * Dot colors come from the persisted `_pingStatus` map rather than
-     * always starting "pending" — so filtering doesn't make already-known
-     * dots flicker gray again.
-     */
+    // rebuilds what's visible from _allResources + _resourceFilter. dot
+    // colors come from _pingStatus instead of resetting to pending every
+    // time, otherwise typing in the search box would flash everything gray
     _renderResourceItems() {
       this._resourcesSection.removeAll();
 
@@ -539,28 +526,45 @@ const Indicator = GObject.registerClass(
     }
 
     _onToggle(wantConnected) {
-      this._runPrivileged(wantConnected ? "start" : "stop");
+      if (wantConnected) this._runStart();
+      else this._runStop();
     }
 
-    async _runPrivileged(action) {
+    // these two are basically copy-pasted on purpose. didn't want a shared
+    // helper taking an action param — the argv going into pkexec needs to
+    // just sit here as a literal array so it's obvious what runs. pkexec
+    // only, no sudo fallback
+
+    async _runStart() {
       if (this._busy) return;
       this._busy = true;
-
-      const binary = this._settings.get_string("twingate-binary");
-      const argv = this._settings.get_boolean("use-pkexec")
-        ? ["pkexec", binary, action]
-        : ["sudo", "-n", binary, action];
-
       try {
-        await runCommand(argv, this._cancellable);
+        await runCommand(
+          ["pkexec", PRIVILEGED_TWINGATE_BIN, "start"],
+          this._cancellable,
+        );
       } catch (e) {
         if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
       } finally {
         this._busy = false;
       }
+      // daemon takes a sec to catch up, so poll again a couple times
+      this._scheduleQuickRefreshes();
+    }
 
-      // The daemon may take a moment to reflect the new state; poll a
-      // couple more times shortly after the action.
+    async _runStop() {
+      if (this._busy) return;
+      this._busy = true;
+      try {
+        await runCommand(
+          ["pkexec", PRIVILEGED_TWINGATE_BIN, "stop"],
+          this._cancellable,
+        );
+      } catch (e) {
+        if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+      } finally {
+        this._busy = false;
+      }
       this._scheduleQuickRefreshes();
     }
 
@@ -605,14 +609,11 @@ const Indicator = GObject.registerClass(
       else this._setResources([]);
     }
 
-    /**
-     * Sends a native notification when the connection category (connected /
-     * disconnected / error) actually changes — never on every poll tick, and
-     * never for the very first status check after startup (that's just
-     * discovering the current state, not a change). Transitional tokens
-     * (connecting/authenticating) have no category and are ignored, but
-     * don't reset the baseline, so a later real change is still caught.
-     */
+    // only notifies on an actual change (connected/disconnected/error) —
+    // not every poll, and not the first check on startup either.
+    // connecting/authenticating get skipped since they don't have a
+    // category, but they don't touch the baseline, so we still catch the
+    // real change once it happens
     _maybeNotifyStateChange(token) {
       const category = NOTIFY_CATEGORY[token] ?? null;
       if (
