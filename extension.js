@@ -91,6 +91,15 @@ async function runCommand(argv, cancellable) {
     });
     proc.init(cancellable);
   } catch (e) {
+    // this one can be a plain JS error (bad argv, spawn failure), so the
+    // instanceof has to come first — only a real GError has .matches. and
+    // a cancel has to propagate, otherwise the caller reads it as "twingate
+    // failed" and starts repainting a menu that's already being torn down
+    if (
+      e instanceof GLib.Error &&
+      e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)
+    )
+      throw e;
     return { success: false, stdout: "", stderr: e.message ?? String(e) };
   }
 
@@ -201,6 +210,11 @@ const Indicator = GObject.registerClass(
       this._searchToggledOn = false;
       this._pingStatus = new Map();
       this._previousCategory = null;
+      // flipped in destroy(). every async method below re-checks it after an
+      // await, because cancel() only stops calls that are still in flight —
+      // one that finished a moment earlier already has its continuation
+      // queued, and it'll happily resume after the actors are gone
+      this._destroyed = false;
 
       const iconPath = GLib.build_filenamev([
         extensionPath,
@@ -261,6 +275,8 @@ const Indicator = GObject.registerClass(
         return;
       }
 
+      if (this._destroyed) return;
+
       const name = parseNetworkName(result.stdout);
       if (name) this._networkNameLabel.text = name;
     }
@@ -308,6 +324,7 @@ const Indicator = GObject.registerClass(
         if (generation !== this._resourceGeneration) return;
         pingAddress(address, this._cancellable)
           .then((reachable) => {
+            if (this._destroyed) return;
             if (generation !== this._resourceGeneration) return;
             this._pingStatus.set(address, reachable);
             const dot = this._resourceDots.get(address);
@@ -550,6 +567,7 @@ const Indicator = GObject.registerClass(
         this._busy = false;
       }
       // daemon takes a sec to catch up, so poll again a couple times
+      if (this._destroyed) return;
       this._scheduleQuickRefreshes();
     }
 
@@ -566,6 +584,7 @@ const Indicator = GObject.registerClass(
       } finally {
         this._busy = false;
       }
+      if (this._destroyed) return;
       this._scheduleQuickRefreshes();
     }
 
@@ -593,10 +612,13 @@ const Indicator = GObject.registerClass(
         );
       } catch (e) {
         if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (this._destroyed) return;
         this._setState("unknown");
         this._maybeNotifyStateChange("unknown");
         return;
       }
+
+      if (this._destroyed) return;
 
       if (!result.success && result.stdout.length === 0) {
         this._setState("unknown");
@@ -648,14 +670,21 @@ const Indicator = GObject.registerClass(
         );
       } catch (e) {
         if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (this._destroyed) return;
         this._setResources([]);
         return;
       }
+
+      if (this._destroyed) return;
 
       this._setResources(parseResources(result.stdout));
     }
 
     destroy() {
+      // first thing, before anything else gets torn down — whatever's still
+      // sitting on an await has to see this and bail instead of resuming
+      this._destroyed = true;
+
       if (this._timeoutId) {
         GLib.Source.remove(this._timeoutId);
         this._timeoutId = null;
