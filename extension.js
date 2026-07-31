@@ -20,10 +20,12 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 
 Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
-// Most settings live in GSettings (schemas/ + prefs.js), but not this one.
-// start/stop run as root through pkexec, and GSettings can be rewritten by
-// any local process, so this path has to stay hardcoded.
-const PRIVILEGED_TWINGATE_BIN = "/usr/bin/twingate";
+// not a setting, on purpose. start/stop run as root through pkexec, and
+// GSettings can be rewritten by any local process, so this can't come
+// from there. Twingate's own installers always put it here, so the
+// read-only calls (status/resources/account list) use the same fixed
+// path instead of adding a config knob that mostly just adds confusion.
+const TWINGATE_BIN = "/usr/bin/twingate";
 
 // panel icon never changes, connection status is just a dot next to the
 // network name in the dropdown
@@ -103,7 +105,7 @@ async function runCommand(argv, cancellable) {
       stderr: stderr ?? "",
     };
   } catch (e) {
-    if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
+    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
     return { success: false, stdout: "", stderr: e.message ?? String(e) };
   }
 }
@@ -129,7 +131,7 @@ async function pingAddress(address, cancellable) {
     );
     return result.success;
   } catch (e) {
-    if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
+    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
     return false;
   }
 }
@@ -249,11 +251,10 @@ const Indicator = GObject.registerClass(
     }
 
     async _loadNetworkName() {
-      const binary = this._settings.get_string("twingate-binary");
       let result;
       try {
         result = await runCommand(
-          [binary, "-d", "account", "list"],
+          [TWINGATE_BIN, "-d", "account", "list"],
           this._cancellable,
         );
       } catch (e) {
@@ -356,7 +357,7 @@ const Indicator = GObject.registerClass(
       });
       settingsButton.connect("clicked", () => {
         this.menu.close();
-        this._onOpenPreferences?.();
+        this._onOpenPreferences();
       });
       headerBox.add_child(settingsButton);
 
@@ -540,11 +541,11 @@ const Indicator = GObject.registerClass(
       this._busy = true;
       try {
         await runCommand(
-          ["pkexec", PRIVILEGED_TWINGATE_BIN, "start"],
+          ["pkexec", TWINGATE_BIN, "start"],
           this._cancellable,
         );
       } catch (e) {
-        if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
       } finally {
         this._busy = false;
       }
@@ -557,11 +558,11 @@ const Indicator = GObject.registerClass(
       this._busy = true;
       try {
         await runCommand(
-          ["pkexec", PRIVILEGED_TWINGATE_BIN, "stop"],
+          ["pkexec", TWINGATE_BIN, "stop"],
           this._cancellable,
         );
       } catch (e) {
-        if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
       } finally {
         this._busy = false;
       }
@@ -584,12 +585,14 @@ const Indicator = GObject.registerClass(
     }
 
     async _refresh() {
-      const binary = this._settings.get_string("twingate-binary");
       let result;
       try {
-        result = await runCommand([binary, "-d", "status"], this._cancellable);
+        result = await runCommand(
+          [TWINGATE_BIN, "-d", "status"],
+          this._cancellable,
+        );
       } catch (e) {
-        if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
         this._setState("unknown");
         this._maybeNotifyStateChange("unknown");
         return;
@@ -637,15 +640,14 @@ const Indicator = GObject.registerClass(
     }
 
     async _refreshResources() {
-      const binary = this._settings.get_string("twingate-binary");
       let result;
       try {
         result = await runCommand(
-          [binary, "-d", "resources"],
+          [TWINGATE_BIN, "-d", "resources"],
           this._cancellable,
         );
       } catch (e) {
-        if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
+        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
         this._setResources([]);
         return;
       }

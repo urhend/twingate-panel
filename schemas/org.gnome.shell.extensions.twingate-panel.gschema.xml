@@ -7,11 +7,6 @@
       <summary>Poll interval</summary>
       <description>How often, in seconds, status and resources are refreshed.</description>
     </key>
-    <key name="twingate-binary" type="s">
-      <default>"/usr/bin/twingate"</default>
-      <summary>Twingate binary path</summary>
-      <description>Path to the twingate CLI executable, used for read-only status/resources/account checks only. Connect/disconnect always run /usr/bin/twingate directly via pkexec, independent of this setting.</description>
-    </key>
     <key name="notifications-enabled" type="b">
       <default>true</default>
       <summary>Enable connection notifications</summary>

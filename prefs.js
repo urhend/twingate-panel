@@ -27,16 +27,6 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
         settings.bind('poll-interval-seconds', pollRow, 'value', Gio.SettingsBindFlags.DEFAULT);
         group.add(pollRow);
 
-        const binaryRow = new Adw.EntryRow({
-            title: 'Twingate binary path',
-            tooltip_text:
-                'Used for status/resources/account checks only. Connect ' +
-                'and disconnect always run /usr/bin/twingate directly via ' +
-                'pkexec, regardless of this setting.',
-        });
-        settings.bind('twingate-binary', binaryRow, 'text', Gio.SettingsBindFlags.DEFAULT);
-        group.add(binaryRow);
-
         const notificationsRow = new Adw.SwitchRow({
             title: 'Enable notifications',
             subtitle: 'Show a notification when the connection state changes (connected/disconnected/error).',
