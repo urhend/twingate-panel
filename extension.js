@@ -5,7 +5,7 @@
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version. See the LICENSE file for details.
+// any later version. See the LICENSE file for details.
 
 import GObject from "gi://GObject";
 import St from "gi://St";
@@ -20,15 +20,8 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 
 Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
-// not a setting, on purpose. start/stop run as root through pkexec, and
-// GSettings can be rewritten by any local process, so this can't come
-// from there. Twingate's own installers always put it here, so the
-// read-only calls (status/resources/account list) use the same fixed
-// path instead of adding a config knob that mostly just adds confusion.
 const TWINGATE_BIN = "/usr/bin/twingate";
 
-// panel icon never changes, connection status is just a dot next to the
-// network name in the dropdown
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
   offline: { label: "Offline", connected: false, dotColor: "#9a9996" },
@@ -42,9 +35,6 @@ const STATUS_INFO = {
   unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
 };
 
-// just for deciding when to notify. connecting/authenticating aren't in
-// here on purpose since they're transitional — no notification, and they
-// don't touch the baseline either
 const NOTIFY_CATEGORY = {
   online: "connected",
   "not-running": "disconnected",
@@ -58,13 +48,8 @@ const PING_CLASSES = [
   "twingate-dot-unreachable",
 ];
 const DOT_SIZE = 7;
-// nobody's watching the dot when the menu's closed, so slow way down —
-// this many times slower than whatever the user set
 const BACKGROUND_POLL_MULTIPLIER = 6;
 
-// empty St.Widgets default to 0x0, so CSS width/height alone doesn't
-// really hold up inside a BoxLayout — it just stretches instead of
-// staying a circle. set_size() + turning off expand actually works though
 function createDot(extraClass) {
   const dot = new St.Widget({
     style_class: `twingate-status-dot ${extraClass}`,
@@ -80,8 +65,6 @@ function statusInfoFor(token) {
   return STATUS_INFO[token] ?? STATUS_INFO.unknown;
 }
 
-// runs argv without blocking the shell. rethrows if it gets cancelled,
-// otherwise just stuffs whatever went wrong into {success: false, ...}
 async function runCommand(argv, cancellable) {
   let proc;
   try {
@@ -91,10 +74,6 @@ async function runCommand(argv, cancellable) {
     });
     proc.init(cancellable);
   } catch (e) {
-    // this one can be a plain JS error (bad argv, spawn failure), so the
-    // instanceof has to come first — only a real GError has .matches. and
-    // a cancel has to propagate, otherwise the caller reads it as "twingate
-    // failed" and starts repainting a menu that's already being torn down
     if (
       e instanceof GLib.Error &&
       e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)
@@ -125,13 +104,10 @@ function parseStatusToken(stdout) {
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
-  // being paranoid here — lowercase it, grab the first token, in case some
-  // CLI version prints extra stuff before the actual status
   const token = firstLine.toLowerCase().split(/\s+/)[0] ?? "";
   return token in STATUS_INFO ? token : "unknown";
 }
 
-// true if one ping got a reply within a second, that's the whole check
 async function pingAddress(address, cancellable) {
   try {
     const result = await runCommand(
@@ -145,10 +121,6 @@ async function pingAddress(address, cancellable) {
   }
 }
 
-// `twingate account list` spits out a tab-separated table:
-// EMAIL <TAB> NETWORK <TAB> NETWORK URL
-// works fine while disconnected too. we just grab the network name off
-// the first account, most people only have the one anyway
 function parseNetworkName(stdout) {
   const lines = (stdout ?? "")
     .split("\n")
@@ -162,17 +134,8 @@ function parseNetworkName(stdout) {
   return null;
 }
 
-// anything that doesn't match this gets dropped down in parseResources().
-// mostly here so a leading '-' can't get read as a ping flag instead of
-// an actual target
 const VALID_ADDRESS_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]*$/;
 
-// `twingate resources` prints a tab-separated table:
-// RESOURCE NAME <TAB> ADDRESS <TAB> ALIAS <TAB> AUTH STATUS
-// Home Assistant<TAB>192.168.0.211<TAB>-<TAB>
-// we only care about name + address, header row and extra columns get
-// dropped. when disconnected it just prints a sentence instead of a
-// table, so this returns nothing — which is exactly what we want
 function parseResources(stdout) {
   const lines = (stdout ?? "")
     .split("\n")
@@ -210,13 +173,7 @@ const Indicator = GObject.registerClass(
       this._searchToggledOn = false;
       this._pingStatus = new Map();
       this._previousCategory = null;
-      // needed to tell "no resources because we're disconnected" apart from
-      // "connected but genuinely zero authorized resources" in _renderResourceItems
       this._connected = false;
-      // flipped in destroy(). every async method below re-checks it after an
-      // await, because cancel() only stops calls that are still in flight —
-      // one that finished a moment earlier already has its continuation
-      // queued, and it'll happily resume after the actors are gone
       this._destroyed = false;
 
       const iconPath = GLib.build_filenamev([
@@ -319,9 +276,6 @@ const Indicator = GObject.registerClass(
       );
     }
 
-    // pings everything we know about, filtered or not, so _pingStatus
-    // stays current even for rows the search box is hiding. only touches
-    // a dot actor if it's actually on screen right now
     _pingAllResources(generation) {
       for (const { address } of this._allResources) {
         if (generation !== this._resourceGeneration) return;
@@ -490,16 +444,10 @@ const Indicator = GObject.registerClass(
       if (visible) this._searchEntry.grab_key_focus();
     }
 
-    // rebuilds what's visible from _allResources + _resourceFilter. dot
-    // colors come from _pingStatus instead of resetting to pending every
-    // time, otherwise typing in the search box would flash everything gray
     _renderResourceItems() {
       this._resourcesSection.removeAll();
 
       const hasResources = this._allResources.length > 0;
-      // connected with nothing authorized is a real state, not a loading
-      // gap — keep the header up so the empty-list message has somewhere
-      // to sit, instead of the section just vanishing
       const showEmptyPlaceholder = this._connected && !hasResources;
       this._resourcesHeader.visible = hasResources || showEmptyPlaceholder;
       this._resourceSearchItem.visible = hasResources && this._searchToggledOn;
@@ -571,11 +519,6 @@ const Indicator = GObject.registerClass(
       else this._runStop();
     }
 
-    // these two are basically copy-pasted on purpose. didn't want a shared
-    // helper taking an action param — the argv going into pkexec needs to
-    // just sit here as a literal array so it's obvious what runs. pkexec
-    // only, no sudo fallback
-
     async _runStart() {
       if (this._busy) return;
       this._busy = true;
@@ -589,7 +532,6 @@ const Indicator = GObject.registerClass(
       } finally {
         this._busy = false;
       }
-      // daemon takes a sec to catch up, so poll again a couple times
       if (this._destroyed) return;
       this._scheduleQuickRefreshes();
     }
@@ -657,11 +599,6 @@ const Indicator = GObject.registerClass(
       else this._setResources([]);
     }
 
-    // only notifies on an actual change (connected/disconnected/error) —
-    // not every poll, and not the first check on startup either.
-    // connecting/authenticating get skipped since they don't have a
-    // category, but they don't touch the baseline, so we still catch the
-    // real change once it happens
     _maybeNotifyStateChange(token) {
       const category = NOTIFY_CATEGORY[token] ?? null;
       if (
@@ -704,8 +641,6 @@ const Indicator = GObject.registerClass(
     }
 
     destroy() {
-      // first thing, before anything else gets torn down — whatever's still
-      // sitting on an await has to see this and bail instead of resuming
       this._destroyed = true;
 
       if (this._timeoutId) {
