@@ -61,3 +61,10 @@
     color: #ffffff;
     font-size: 0.85em;
 }
+
+.twingate-resource-empty {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.85em;
+    font-style: italic;
+    padding: 2px 8px;
+}

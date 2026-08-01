@@ -210,6 +210,9 @@ const Indicator = GObject.registerClass(
       this._searchToggledOn = false;
       this._pingStatus = new Map();
       this._previousCategory = null;
+      // needed to tell "no resources because we're disconnected" apart from
+      // "connected but genuinely zero authorized resources" in _renderResourceItems
+      this._connected = false;
       // flipped in destroy(). every async method below re-checks it after an
       // await, because cancel() only stops calls that are still in flight —
       // one that finished a moment earlier already has its continuation
@@ -451,6 +454,7 @@ const Indicator = GObject.registerClass(
 
     _setState(token) {
       const info = statusInfoFor(token);
+      this._connected = info.connected;
 
       this._statusDot.set_style(`background-color: ${info.dotColor};`);
 
@@ -493,7 +497,11 @@ const Indicator = GObject.registerClass(
       this._resourcesSection.removeAll();
 
       const hasResources = this._allResources.length > 0;
-      this._resourcesHeader.visible = hasResources;
+      // connected with nothing authorized is a real state, not a loading
+      // gap — keep the header up so the empty-list message has somewhere
+      // to sit, instead of the section just vanishing
+      const showEmptyPlaceholder = this._connected && !hasResources;
+      this._resourcesHeader.visible = hasResources || showEmptyPlaceholder;
       this._resourceSearchItem.visible = hasResources && this._searchToggledOn;
 
       this._resourceGeneration++;
@@ -506,6 +514,21 @@ const Indicator = GObject.registerClass(
             `${name} ${address}`.toLowerCase().includes(filter),
           )
         : this._allResources;
+
+      if (showEmptyPlaceholder) {
+        const emptyItem = new PopupMenu.PopupBaseMenuItem({
+          reactive: false,
+          can_focus: false,
+        });
+        emptyItem.add_child(
+          new St.Label({
+            style_class: "twingate-resource-empty",
+            text: "No resources available",
+            x_expand: true,
+          }),
+        );
+        this._resourcesSection.addMenuItem(emptyItem);
+      }
 
       for (const { name, address } of filtered) {
         const item = new PopupMenu.PopupBaseMenuItem({
