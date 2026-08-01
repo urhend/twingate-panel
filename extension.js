@@ -74,11 +74,7 @@ async function runCommand(argv, cancellable) {
     });
     proc.init(cancellable);
   } catch (e) {
-    if (
-      e instanceof GLib.Error &&
-      e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)
-    )
-      throw e;
+    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
     return { success: false, stdout: "", stderr: e.message ?? String(e) };
   }
 
@@ -598,7 +594,7 @@ const Indicator = GObject.registerClass(
         category !== this._previousCategory &&
         this._settings.get_boolean("notifications-enabled")
       ) {
-        const network = this._networkNameLabel?.text || "Twingate";
+        const network = this._networkNameLabel.text || "Twingate";
         if (category === "connected")
           Main.notify("Twingate", `Connected to ${network}`);
         else if (category === "disconnected")

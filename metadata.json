@@ -6,5 +6,5 @@
     "settings-schema": "org.gnome.shell.extensions.twingate-panel",
     "shell-version": ["50"],
     "version": 1,
-    "version-name": "1.0.4"
+    "version-name": "1.0.6"
 }
