@@ -10,6 +10,7 @@
 ![GJS](https://img.shields.io/badge/GJS-ESM-f6d32d)
 ![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+[![CI](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml)
 
 [Repository](https://github.com/urhend/twingate-panel)
 
@@ -52,9 +53,12 @@ dropdown menu that does it all.
 
 | | |
 |---|---|
-| 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header. |
+| 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header, next to the network name. |
+| 🌐 **Network name** | Shows your Twingate network name (e.g. `network-name`), bold when connected, read from `twingate account list`. |
 | 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
 | 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. |
+| 🔍 **Resource search** | A magnifier button next to "Resources" reveals a compact filter box (name + address); auto-collapses when the dropdown closes. |
+| 🔔 **Connection notifications** | Native GNOME notifications on real connect/disconnect/error transitions, not on every poll — toggleable, and automatically silenced by GNOME's own Do Not Disturb setting. |
 | 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
 | ⚙️ **In-menu preferences** | A settings icon in the dropdown header opens a native GTK4/libadwaita preferences window — no more editing source files. |
 | ⚡ **Fully asynchronous** | Every external command (`twingate`, `pkexec`, `ping`) runs via non-blocking `Gio.Subprocess` — the shell never freezes while it works. |
@@ -67,21 +71,28 @@ dropdown menu that does it all.
 │  [Twingate icon]                        │
 └──────────────┬───────────────────────────┘
                │ click → dropdown:
-               │   [Twingate wordmark]  ● status dot   ⚙ (opens Preferences)
+               │   network-name  ●                    ⚙ (opens Preferences)
                │   ────────────────────────
                │   Connected  [ toggle ]
                │   ────────────────────────
-               │   Resources
+               │   Resources                    🔍 (toggles search)
                │     server-a · 192.168.0.10        ●
                │     server-b · 192.168.0.20        ●
                ▼
-      Poll loop (every 5s while enabled)
-               │
-               ▼
-   twingate -d status   →  updates status dot
-   twingate -d resources →  updates resource list (only while connected)
-   ping -c 1 -W 1 <ip>   →  updates each resource's reachability dot
+   twingate account list  →  network name (fetched once at startup)
+   twingate -d status      →  status dot + bold network name when connected;
+                              sends a notification on real connect/disconnect/
+                              error transitions (never on repeated polls)
+   twingate -d resources    →  resource list (only while connected)
+   ping -c 1 -W 1 <ip>      →  reachability dot per resource, on its own
+                              independent interval — can be disabled entirely
 ```
+
+Status polling uses the configured interval while the dropdown is open, and
+backs off to 6× slower while it's closed — reopening the menu triggers an
+immediate refresh. Typing in the resource search box filters by name and
+address without re-fetching or re-pinging anything; closing the dropdown
+clears the search automatically.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
@@ -121,8 +132,8 @@ Then log out and back in (or reload GNOME Shell on X11 with <kbd>Alt</kbd>+<kbd>
 
 ## Configuration
 
-Click the ⚙ icon in the top-right of the dropdown (opposite the Twingate
-logo) to open the preferences window — or run:
+Click the ⚙ icon in the top-right of the dropdown header (next to the
+network name) to open the preferences window — or run:
 
 ```bash
 gnome-extensions prefs twingate-panel@urhend
@@ -131,8 +142,9 @@ gnome-extensions prefs twingate-panel@urhend
 | Setting | Default | Description |
 |---|---|---|
 | Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
-| Use pkexec | `on` | Show a graphical polkit password prompt for connect/disconnect. Turn off only if you've configured a scoped `NOPASSWD` sudoers rule for the exact `start`/`stop` commands. |
-| Twingate binary path | `/usr/bin/twingate` | Path to the Twingate CLI binary. |
+| Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
+| Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
+| Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
 
 Settings are stored via GSettings (schema
 `org.gnome.shell.extensions.twingate-panel`), so they persist across
@@ -157,6 +169,7 @@ journalctl -f -o cat /usr/bin/gnome-shell
 
 ```
 twingate-panel/
+├── .github/workflows/ci.yml # CI: JS syntax, metadata.json, schema compile
 ├── metadata.json            # Extension manifest (uuid, name, shell-version…)
 ├── extension.js             # All logic: indicator, menu, polling, subprocesses
 ├── prefs.js                 # GTK4/libadwaita preferences window
@@ -166,7 +179,8 @@ twingate-panel/
 │   └── gschemas.compiled    # Compiled schema (required at runtime)
 ├── icons/
 │   ├── twingate-panel.png   # Static top-bar icon
-│   └── twingate-wordmark.png# Logo shown in the dropdown header
+│   └── twingate-wordmark.png# Unused for now (dropped in favor of the
+│                            # network name); kept for a possible future revision
 ├── screenshots/
 │   └── menu.png             # Dropdown menu preview (used in this README)
 ├── LICENSE                  # GPL-3.0-or-later
@@ -175,8 +189,13 @@ twingate-panel/
 
 ## Known limitations
 
-- `start`/`stop` always prompt for a password via `pkexec` unless you set up
-  a passwordless `sudoers` rule yourself (see [Configuration](#configuration)).
+- `start`/`stop` always prompt for a password via `pkexec` — there is no
+  passwordless option. This is intentional: `sudo` is disallowed entirely
+  for privileged subprocesses under
+  [GNOME's extension review guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html#privileged-subprocess-must-not-be-user-writable).
+- The Twingate binary path (`/usr/bin/twingate`) is hardcoded, not
+  configurable — for the same reason as above, and because every official
+  Twingate installer puts it there anyway.
 - Resource reachability is a simple one-shot ICMP ping; it doesn't reflect
   Twingate's own internal routing/health checks.
 

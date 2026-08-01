@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, production]
+  pull_request:
+    branches: [main, production]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check extension.js
+          node --check prefs.js
+
+      - name: Validate metadata.json
+        run: python3 -c "import json; json.load(open('metadata.json'))"
+
+      - name: Compile GSettings schema
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libglib2.0-bin
+          glib-compile-schemas schemas/
