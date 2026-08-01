@@ -174,7 +174,6 @@ const Indicator = GObject.registerClass(
       this._pingStatus = new Map();
       this._previousCategory = null;
       this._connected = false;
-      this._destroyed = false;
 
       const iconPath = GLib.build_filenamev([
         extensionPath,
@@ -235,8 +234,6 @@ const Indicator = GObject.registerClass(
         return;
       }
 
-      if (this._destroyed) return;
-
       const name = parseNetworkName(result.stdout);
       if (name) this._networkNameLabel.text = name;
     }
@@ -281,7 +278,6 @@ const Indicator = GObject.registerClass(
         if (generation !== this._resourceGeneration) return;
         pingAddress(address, this._cancellable)
           .then((reachable) => {
-            if (this._destroyed) return;
             if (generation !== this._resourceGeneration) return;
             this._pingStatus.set(address, reachable);
             const dot = this._resourceDots.get(address);
@@ -532,7 +528,6 @@ const Indicator = GObject.registerClass(
       } finally {
         this._busy = false;
       }
-      if (this._destroyed) return;
       this._scheduleQuickRefreshes();
     }
 
@@ -549,7 +544,6 @@ const Indicator = GObject.registerClass(
       } finally {
         this._busy = false;
       }
-      if (this._destroyed) return;
       this._scheduleQuickRefreshes();
     }
 
@@ -577,13 +571,10 @@ const Indicator = GObject.registerClass(
         );
       } catch (e) {
         if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        if (this._destroyed) return;
         this._setState("unknown");
         this._maybeNotifyStateChange("unknown");
         return;
       }
-
-      if (this._destroyed) return;
 
       if (!result.success && result.stdout.length === 0) {
         this._setState("unknown");
@@ -630,19 +621,14 @@ const Indicator = GObject.registerClass(
         );
       } catch (e) {
         if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        if (this._destroyed) return;
         this._setResources([]);
         return;
       }
-
-      if (this._destroyed) return;
 
       this._setResources(parseResources(result.stdout));
     }
 
     destroy() {
-      this._destroyed = true;
-
       if (this._timeoutId) {
         GLib.Source.remove(this._timeoutId);
         this._timeoutId = null;
