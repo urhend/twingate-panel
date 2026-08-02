@@ -11,8 +11,9 @@
 ![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 [![CI](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/urhend/twingate-panel/actions/workflows/ci.yml)
+[![Get it on GNOME Extensions](https://img.shields.io/badge/extensions.gnome.org-Active-4a90d9?logo=gnome&logoColor=white)](https://extensions.gnome.org/extension/10569/twingate-panel/)
 
-[Repository](https://github.com/urhend/twingate-panel)
+[Repository](https://github.com/urhend/twingate-panel) · [extensions.gnome.org listing](https://extensions.gnome.org/extension/10569/twingate-panel/)
 
 *Not affiliated with or endorsed by Twingate Inc. "Twingate" and its logo are trademarks of their respective owner, used here for identification purposes only.*
 
@@ -121,6 +122,19 @@ and the extension handles day-to-day connect/disconnect.
 
 ## Installation
 
+### From extensions.gnome.org (recommended)
+
+Twingate Panel is published and active on the official extension repository:
+
+**[extensions.gnome.org/extension/10569/twingate-panel](https://extensions.gnome.org/extension/10569/twingate-panel/)**
+
+You need the [GNOME Shell integration browser extension](https://extensions.gnome.org/about/) installed once (Firefox/Chrome), plus its native host connector (`gnome-browser-connector`, usually available from your distro's package manager — already installed on most GNOME desktops). Then:
+
+1. Open the link above and click **Install**.
+2. Or, from the **Extensions** app already on your system: look for a "Browse" / "Get more extensions" section and search for "Twingate Panel" there.
+
+Updates are then delivered automatically by GNOME Shell — no need to track releases yourself.
+
 ### From source
 
 ```bash
@@ -130,6 +144,8 @@ gnome-extensions enable twingate-panel@urhend
 ```
 
 Then log out and back in (or reload GNOME Shell on X11 with <kbd>Alt</kbd>+<kbd>F2</kbd>, `r`) so the Shell picks up the new extension.
+
+Use this method only for development or testing unreleased changes — if your working copy is also symlinked as the installed extension, do **not** also click "Install" on extensions.gnome.org for it, since that downloads and overwrites the symlinked directory with the server's packaged copy.
 
 ## Configuration
 
