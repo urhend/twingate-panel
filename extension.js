@@ -24,6 +24,11 @@ const TWINGATE_BIN = "/usr/bin/twingate";
 const PKEXEC_BIN = "/usr/bin/pkexec";
 const PING_BIN = "/usr/bin/ping";
 
+const PKEXEC_DISMISSED_STATUS = 126;
+const MAX_ERROR_DETAIL_LENGTH = 120;
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+const QUICK_REFRESH_DELAYS = [2, 5];
+
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
   offline: { label: "Offline", connected: false, dotColor: "#9a9996" },
@@ -36,6 +41,8 @@ const STATUS_INFO = {
   },
   unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
 };
+
+const TRANSITIONAL_STATES = new Set(["connecting", "authenticating"]);
 
 const NOTIFY_CATEGORY = {
   online: "connected",
@@ -87,6 +94,7 @@ async function runCommand(argv, cancellable) {
     );
     return {
       success: proc.get_successful(),
+      exitStatus: proc.get_if_exited() ? proc.get_exit_status() : null,
       stdout: stdout ?? "",
       stderr: stderr ?? "",
     };
@@ -94,6 +102,18 @@ async function runCommand(argv, cancellable) {
     if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
     return { success: false, stdout: "", stderr: e.message ?? String(e) };
   }
+}
+
+function commandErrorDetail(result) {
+  const line = `${result.stderr}\n${result.stdout}`
+    .replace(ANSI_ESCAPE_RE, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!line) return "unknown error";
+  return line.length > MAX_ERROR_DETAIL_LENGTH
+    ? `${line.slice(0, MAX_ERROR_DETAIL_LENGTH)}…`
+    : line;
 }
 
 function parseStatusToken(stdout) {
@@ -164,6 +184,8 @@ const Indicator = GObject.registerClass(
       this._pendingRefreshIds = new Set();
       this._suppressToggle = false;
       this._busy = false;
+      this._transitional = false;
+      this._pendingTarget = null;
       this._resourceGeneration = 0;
       this._resourceDots = new Map();
       this._allResources = [];
@@ -415,9 +437,27 @@ const Indicator = GObject.registerClass(
           "twingate-network-title-connected",
         );
 
+      this._transitional = TRANSITIONAL_STATES.has(token);
+      if (this._pendingTarget === info.connected) this._pendingTarget = null;
+      const holding = this._pendingTarget !== null;
+
+      let label = "Connected";
+      if (this._transitional) label = info.label;
+      else if (holding && this._pendingTarget) label = STATUS_INFO.connecting.label;
+      this._switchItem.label.text = label;
+
       this._suppressToggle = true;
-      this._switchItem.setToggleState(info.connected);
+      this._switchItem.setToggleState(
+        holding ? this._pendingTarget : info.connected || this._transitional,
+      );
       this._suppressToggle = false;
+      this._syncSwitchSensitive();
+    }
+
+    _syncSwitchSensitive() {
+      this._switchItem.setSensitive(
+        !this._busy && !this._transitional && this._pendingTarget === null,
+      );
     }
 
     _setResources(resources) {
@@ -516,42 +556,63 @@ const Indicator = GObject.registerClass(
     async _runStart() {
       if (this._busy) return;
       this._busy = true;
+      this._pendingTarget = true;
+      this._syncSwitchSensitive();
+      let result;
       try {
-        await runCommand(
+        result = await runCommand(
           [PKEXEC_BIN, TWINGATE_BIN, "start"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
+      } catch {
+        return;
       }
-      this._scheduleQuickRefreshes();
+      this._finishToggleCommand(result, "Could not connect");
     }
 
     async _runStop() {
       if (this._busy) return;
       this._busy = true;
+      this._pendingTarget = false;
+      this._syncSwitchSensitive();
+      let result;
       try {
-        await runCommand(
+        result = await runCommand(
           [PKEXEC_BIN, TWINGATE_BIN, "stop"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
+      } catch {
+        return;
       }
-      this._scheduleQuickRefreshes();
+      this._finishToggleCommand(result, "Could not disconnect");
+    }
+
+    _finishToggleCommand(result, failureMessage) {
+      this._busy = false;
+      if (result.success) {
+        this._syncSwitchSensitive();
+        this._scheduleQuickRefreshes();
+        return;
+      }
+
+      this._pendingTarget = null;
+      if (result.exitStatus !== PKEXEC_DISMISSED_STATUS)
+        Main.notifyError(
+          "Twingate",
+          `${failureMessage}: ${commandErrorDetail(result)}`,
+        );
+      this._refresh();
     }
 
     _scheduleQuickRefreshes() {
-      for (const delay of [2, 5]) {
+      const lastDelay = QUICK_REFRESH_DELAYS[QUICK_REFRESH_DELAYS.length - 1];
+      for (const delay of QUICK_REFRESH_DELAYS) {
         const id = GLib.timeout_add_seconds(
           GLib.PRIORITY_DEFAULT,
           delay,
           () => {
             this._pendingRefreshIds.delete(id);
+            if (delay === lastDelay) this._pendingTarget = null;
             this._refresh();
             return GLib.SOURCE_REMOVE;
           },

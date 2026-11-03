@@ -98,7 +98,14 @@ clears the search automatically.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
-extension itself never sees or handles your credentials.
+extension itself never sees or handles your credentials. While the command
+runs and the connection settles, the switch is locked in its new position and
+its label shows "Connecting…" / "Authenticating…", so a second click can't
+accidentally send the opposite command. If `start` or `stop` fails (wrong
+password, not authorized, CLI error), an error notification shows the reason
+and the switch returns to the real state; simply cancelling the password
+prompt is silent. These errors are shown even with notifications turned off,
+since they're direct feedback to your own click.
 
 ## Requirements
 
