@@ -6,7 +6,7 @@
 
 **Control the Twingate VPN client from the GNOME top panel — no terminal required.**
 
-![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-50-4a90d9?logo=gnome&logoColor=white)
+![GNOME Shell](https://img.shields.io/badge/GNOME%20Shell-45--51-4a90d9?logo=gnome&logoColor=white)
 ![GJS](https://img.shields.io/badge/GJS-ESM-f6d32d)
 ![Status](https://img.shields.io/badge/status-unofficial%20%2F%20community-orange)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
@@ -102,7 +102,7 @@ extension itself never sees or handles your credentials.
 
 ## Requirements
 
-- GNOME Shell 50 (Wayland or X11)
+- GNOME Shell 45-51 (Wayland or X11)
 - The Twingate Linux client installed, with the CLI available at
   `/usr/bin/twingate` — see the
   [official Twingate Linux installation guide](https://www.twingate.com/docs/linux)
