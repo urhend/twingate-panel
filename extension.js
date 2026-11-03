@@ -194,6 +194,8 @@ const Indicator = GObject.registerClass(
       this._resourceDots = new Map();
       this._allResources = [];
       this._resourceFilter = "";
+      this._resourceItems = [];
+      this._renderedResourcesKey = null;
       this._searchToggledOn = false;
       this._pingStatus = new Map();
       this._pingsInFlight = new Set();
@@ -428,7 +430,7 @@ const Indicator = GObject.registerClass(
           .get_text()
           .trim()
           .toLowerCase();
-        this._renderResourceItems();
+        this._applyResourceFilter();
       });
       searchItem.add_child(this._searchEntry);
       searchItem.visible = false;
@@ -480,11 +482,16 @@ const Indicator = GObject.registerClass(
     _setResources(resources) {
       this._allResources = resources;
       if (resources.length === 0) this._pingStatus.clear();
-      this._renderResourceItems();
+
+      const pingEnabled = this._settings.get_boolean("ping-enabled");
+      const key = JSON.stringify([this._connected, pingEnabled, resources]);
+      if (key !== this._renderedResourcesKey) {
+        this._renderedResourcesKey = key;
+        this._renderResourceItems();
+      }
 
       const pingAll = this._pingAllOnNextResources;
       this._pingAllOnNextResources = false;
-      const pingEnabled = this._settings.get_boolean("ping-enabled");
       if (pingEnabled && resources.length > 0)
         this._pingAllResources(this._resourceGeneration, !pingAll);
     }
@@ -507,14 +514,9 @@ const Indicator = GObject.registerClass(
 
       this._resourceGeneration++;
       this._resourceDots.clear();
+      this._resourceItems = [];
 
       const pingEnabled = this._settings.get_boolean("ping-enabled");
-      const filter = this._resourceFilter;
-      const filtered = filter
-        ? this._allResources.filter(({ name, address }) =>
-            `${name} ${address}`.toLowerCase().includes(filter),
-          )
-        : this._allResources;
 
       if (showEmptyPlaceholder) {
         const emptyItem = new PopupMenu.PopupBaseMenuItem({
@@ -531,7 +533,7 @@ const Indicator = GObject.registerClass(
         this._resourcesSection.addMenuItem(emptyItem);
       }
 
-      for (const { name, address, pingable } of filtered) {
+      for (const { name, address, pingable } of this._allResources) {
         const item = new PopupMenu.PopupBaseMenuItem({
           reactive: false,
           can_focus: false,
@@ -563,9 +565,20 @@ const Indicator = GObject.registerClass(
 
         item.add_child(box);
         this._resourcesSection.addMenuItem(item);
+        this._resourceItems.push({
+          item,
+          searchText: `${name} ${address}`.toLowerCase(),
+        });
 
         if (showDot) this._resourceDots.set(address, pingDot);
       }
+      this._applyResourceFilter();
+    }
+
+    _applyResourceFilter() {
+      const filter = this._resourceFilter;
+      for (const { item, searchText } of this._resourceItems)
+        item.visible = !filter || searchText.includes(filter);
     }
 
     _onToggle(wantConnected) {
