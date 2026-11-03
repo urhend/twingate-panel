@@ -86,15 +86,18 @@ dropdown menu that does it all.
                               error transitions (never on repeated polls)
    twingate -d resources    →  resource list (only while connected);
                               "No resources available" if the list is empty
-   ping -c 1 -W 1 <ip>      →  reachability dot per resource, on its own
-                              independent interval — can be disabled entirely
+   ping -c 1 -W 1 <ip>      →  reachability dot per resource, only while the
+                              dropdown is open, on its own interval; can be
+                              disabled entirely
 ```
 
 Status polling uses the configured interval while the dropdown is open, and
 backs off to 6× slower while it's closed — reopening the menu triggers an
 immediate refresh. Typing in the resource search box filters by name and
 address without re-fetching or re-pinging anything; closing the dropdown
-clears the search automatically.
+clears the search automatically. Pings run only while the dropdown is open,
+and an address is never pinged again while its previous ping is still in
+flight.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
@@ -168,7 +171,7 @@ gnome-extensions prefs twingate-panel@urhend
 |---|---|---|
 | Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
 | Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
-| Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
+| Enable pings | `on` | Ping each resource periodically while the dropdown is open to show a reachability dot. Turn off to skip pinging entirely. |
 | Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
 
 Settings are stored via GSettings (schema

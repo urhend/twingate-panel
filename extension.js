@@ -195,6 +195,8 @@ const Indicator = GObject.registerClass(
       this._resourceFilter = "";
       this._searchToggledOn = false;
       this._pingStatus = new Map();
+      this._pingsInFlight = new Set();
+      this._pingAllOnNextResources = false;
       this._previousCategory = null;
       this._connected = false;
 
@@ -220,9 +222,13 @@ const Indicator = GObject.registerClass(
       this._menuOpenStateId = this.menu.connect(
         "open-state-changed",
         (_menu, isOpen) => {
-          if (isOpen) this._refresh();
+          if (isOpen) {
+            this._pingAllOnNextResources = true;
+            this._refresh();
+          }
           else this._setSearchVisible(false);
           this._startPolling();
+          this._startPingPolling();
         },
       );
       this._settingsChangedId = this._settings.connect(
@@ -283,7 +289,8 @@ const Indicator = GObject.registerClass(
         GLib.Source.remove(this._pingTimeoutId);
         this._pingTimeoutId = null;
       }
-      if (!this._settings.get_boolean("ping-enabled")) return;
+      if (!this._settings.get_boolean("ping-enabled") || !this.menu.isOpen)
+        return;
 
       const seconds = this._settings.get_int("ping-interval-seconds");
       this._pingTimeoutId = GLib.timeout_add_seconds(
@@ -296,10 +303,13 @@ const Indicator = GObject.registerClass(
       );
     }
 
-    _pingAllResources(generation) {
+    _pingAllResources(generation, onlyUnpinged = false) {
+      if (!this.menu.isOpen) return;
       for (const { address, pingable } of this._allResources) {
         if (generation !== this._resourceGeneration) return;
-        if (!pingable) continue;
+        if (!pingable || this._pingsInFlight.has(address)) continue;
+        if (onlyUnpinged && this._pingStatus.has(address)) continue;
+        this._pingsInFlight.add(address);
         pingAddress(address, this._cancellable)
           .then((reachable) => {
             if (generation !== this._resourceGeneration) return;
@@ -314,7 +324,8 @@ const Indicator = GObject.registerClass(
               );
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => this._pingsInFlight.delete(address));
       }
     }
 
@@ -469,9 +480,11 @@ const Indicator = GObject.registerClass(
       if (resources.length === 0) this._pingStatus.clear();
       this._renderResourceItems();
 
+      const pingAll = this._pingAllOnNextResources;
+      this._pingAllOnNextResources = false;
       const pingEnabled = this._settings.get_boolean("ping-enabled");
       if (pingEnabled && resources.length > 0)
-        this._pingAllResources(this._resourceGeneration);
+        this._pingAllResources(this._resourceGeneration, !pingAll);
     }
 
     _setSearchVisible(visible) {
