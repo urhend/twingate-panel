@@ -164,8 +164,11 @@ function parseResources(stdout) {
     const fields = line.split("\t").map((f) => f.trim());
     if (fields.length < 2 || /^resource name$/i.test(fields[0])) continue;
     const address = fields[1];
-    if (!VALID_ADDRESS_RE.test(address)) continue;
-    rows.push({ name: fields[0], address });
+    rows.push({
+      name: fields[0],
+      address,
+      pingable: VALID_ADDRESS_RE.test(address),
+    });
   }
   return rows;
 }
@@ -294,8 +297,9 @@ const Indicator = GObject.registerClass(
     }
 
     _pingAllResources(generation) {
-      for (const { address } of this._allResources) {
+      for (const { address, pingable } of this._allResources) {
         if (generation !== this._resourceGeneration) return;
+        if (!pingable) continue;
         pingAddress(address, this._cancellable)
           .then((reachable) => {
             if (generation !== this._resourceGeneration) return;
@@ -512,7 +516,7 @@ const Indicator = GObject.registerClass(
         this._resourcesSection.addMenuItem(emptyItem);
       }
 
-      for (const { name, address } of filtered) {
+      for (const { name, address, pingable } of filtered) {
         const item = new PopupMenu.PopupBaseMenuItem({
           reactive: false,
           can_focus: false,
@@ -538,13 +542,14 @@ const Indicator = GObject.registerClass(
               ? "twingate-dot-unreachable"
               : "twingate-dot-pending";
         const pingDot = createDot(pingClass);
-        pingDot.visible = pingEnabled;
+        const showDot = pingEnabled && pingable;
+        pingDot.visible = showDot;
         box.add_child(pingDot);
 
         item.add_child(box);
         this._resourcesSection.addMenuItem(item);
 
-        if (pingEnabled) this._resourceDots.set(address, pingDot);
+        if (showDot) this._resourceDots.set(address, pingDot);
       }
     }
 
