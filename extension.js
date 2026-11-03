@@ -21,6 +21,8 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
 const TWINGATE_BIN = "/usr/bin/twingate";
+const PKEXEC_BIN = "/usr/bin/pkexec";
+const PING_BIN = "/usr/bin/ping";
 
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
@@ -107,7 +109,7 @@ function parseStatusToken(stdout) {
 async function pingAddress(address, cancellable) {
   try {
     const result = await runCommand(
-      ["ping", "-c", "1", "-W", "1", address],
+      [PING_BIN, "-c", "1", "-W", "1", address],
       cancellable,
     );
     return result.success;
@@ -226,7 +228,7 @@ const Indicator = GObject.registerClass(
           [TWINGATE_BIN, "-d", "account", "list"],
           this._cancellable,
         );
-      } catch (e) {
+      } catch {
         return;
       }
 
@@ -516,7 +518,7 @@ const Indicator = GObject.registerClass(
       this._busy = true;
       try {
         await runCommand(
-          ["pkexec", TWINGATE_BIN, "start"],
+          [PKEXEC_BIN, TWINGATE_BIN, "start"],
           this._cancellable,
         );
       } catch (e) {
@@ -532,7 +534,7 @@ const Indicator = GObject.registerClass(
       this._busy = true;
       try {
         await runCommand(
-          ["pkexec", TWINGATE_BIN, "stop"],
+          [PKEXEC_BIN, TWINGATE_BIN, "stop"],
           this._cancellable,
         );
       } catch (e) {

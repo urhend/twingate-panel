@@ -107,8 +107,9 @@ extension itself never sees or handles your credentials.
   `/usr/bin/twingate` — see the
   [official Twingate Linux installation guide](https://www.twingate.com/docs/linux)
   for setup instructions on your distribution
-- `pkexec` (polkit) and `ping` (iputils) available on `PATH` — present on
-  virtually every desktop Linux distribution by default
+- `pkexec` (polkit) at `/usr/bin/pkexec` and `ping` (iputils) at
+  `/usr/bin/ping`, present on virtually every desktop Linux distribution by
+  default
 
 Twingate itself must already be set up once, from a terminal:
 
@@ -210,9 +211,10 @@ twingate-panel/
   passwordless option. This is intentional: `sudo` is disallowed entirely
   for privileged subprocesses under
   [GNOME's extension review guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html#privileged-subprocess-must-not-be-user-writable).
-- The Twingate binary path (`/usr/bin/twingate`) is hardcoded, not
-  configurable — for the same reason as above, and because every official
-  Twingate installer puts it there anyway.
+- The binary paths (`/usr/bin/twingate`, `/usr/bin/pkexec`,
+  `/usr/bin/ping`) are hardcoded, not configurable, for the same reason as
+  above. Every official Twingate installer puts the CLI there, and polkit and
+  iputils install to `/usr/bin` on merged-`/usr` distributions.
 - Resource reachability is a simple one-shot ICMP ping; it doesn't reflect
   Twingate's own internal routing/health checks.
 
