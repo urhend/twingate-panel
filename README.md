@@ -97,7 +97,9 @@ immediate refresh. Typing in the resource search box filters by name and
 address without re-fetching or re-pinging anything; closing the dropdown
 clears the search automatically. Pings run only while the dropdown is open,
 and an address is never pinged again while its previous ping is still in
-flight.
+flight. A single failed or unreadable `twingate status` result doesn't change the
+shown state; the "Something went wrong" notification appears only after 3
+failed reads in a row.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the

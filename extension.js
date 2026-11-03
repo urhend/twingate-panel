@@ -28,6 +28,7 @@ const PKEXEC_DISMISSED_STATUS = 126;
 const MAX_ERROR_DETAIL_LENGTH = 120;
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 const QUICK_REFRESH_DELAYS = [2, 5];
+const STATUS_FAILURE_THRESHOLD = 3;
 
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
@@ -198,6 +199,7 @@ const Indicator = GObject.registerClass(
       this._pingsInFlight = new Set();
       this._pingAllOnNextResources = false;
       this._previousCategory = null;
+      this._statusFailures = 0;
       this._connected = false;
 
       const iconPath = GLib.build_filenamev([
@@ -648,23 +650,37 @@ const Indicator = GObject.registerClass(
         );
       } catch (e) {
         if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
+        this._onStatusReadFailed();
         return;
       }
 
       if (!result.success && result.stdout.length === 0) {
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
+        this._onStatusReadFailed();
         return;
       }
 
       const token = parseStatusToken(result.stdout);
+      if (token === "unknown") {
+        this._onStatusReadFailed();
+        return;
+      }
+
+      this._statusFailures = 0;
       this._setState(token);
       this._maybeNotifyStateChange(token);
 
       if (statusInfoFor(token).connected) this._refreshResources();
       else this._setResources([]);
+    }
+
+    _onStatusReadFailed() {
+      this._statusFailures++;
+      if (this._statusFailures < STATUS_FAILURE_THRESHOLD) {
+        this._syncSwitchSensitive();
+        return;
+      }
+      this._setState("unknown");
+      this._maybeNotifyStateChange("unknown");
     }
 
     _maybeNotifyStateChange(token) {
