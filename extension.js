@@ -29,6 +29,7 @@ const MAX_ERROR_DETAIL_LENGTH = 120;
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 const QUICK_REFRESH_DELAYS = [2, 5];
 const STATUS_FAILURE_THRESHOLD = 3;
+const TRANSITIONAL_LOCK_SECONDS = 30;
 
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
@@ -189,6 +190,7 @@ const Indicator = GObject.registerClass(
       this._suppressToggle = false;
       this._busy = false;
       this._transitional = false;
+      this._transitionalSince = null;
       this._pendingTarget = null;
       this._resourceGeneration = 0;
       this._resourceDots = new Map();
@@ -457,6 +459,9 @@ const Indicator = GObject.registerClass(
         );
 
       this._transitional = TRANSITIONAL_STATES.has(token);
+      if (!this._transitional) this._transitionalSince = null;
+      else if (this._transitionalSince === null)
+        this._transitionalSince = GLib.get_monotonic_time();
       if (this._pendingTarget === info.connected) this._pendingTarget = null;
       const holding = this._pendingTarget !== null;
 
@@ -474,8 +479,12 @@ const Indicator = GObject.registerClass(
     }
 
     _syncSwitchSensitive() {
+      const lockedByTransition =
+        this._transitional &&
+        GLib.get_monotonic_time() - this._transitionalSince <
+          TRANSITIONAL_LOCK_SECONDS * GLib.USEC_PER_SEC;
       this._switchItem.setSensitive(
-        !this._busy && !this._transitional && this._pendingTarget === null,
+        !this._busy && !lockedByTransition && this._pendingTarget === null,
       );
     }
 
@@ -588,6 +597,7 @@ const Indicator = GObject.registerClass(
 
     async _runStart() {
       if (this._busy) return;
+      this._clearQuickRefreshes();
       this._busy = true;
       this._pendingTarget = true;
       this._syncSwitchSensitive();
@@ -605,6 +615,7 @@ const Indicator = GObject.registerClass(
 
     async _runStop() {
       if (this._busy) return;
+      this._clearQuickRefreshes();
       this._busy = true;
       this._pendingTarget = false;
       this._syncSwitchSensitive();
@@ -637,7 +648,13 @@ const Indicator = GObject.registerClass(
       this._refresh();
     }
 
+    _clearQuickRefreshes() {
+      for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
+      this._pendingRefreshIds.clear();
+    }
+
     _scheduleQuickRefreshes() {
+      this._clearQuickRefreshes();
       const lastDelay = QUICK_REFRESH_DELAYS[QUICK_REFRESH_DELAYS.length - 1];
       for (const delay of QUICK_REFRESH_DELAYS) {
         const id = GLib.timeout_add_seconds(
@@ -743,8 +760,7 @@ const Indicator = GObject.registerClass(
         GLib.Source.remove(this._pingTimeoutId);
         this._pingTimeoutId = null;
       }
-      for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
-      this._pendingRefreshIds.clear();
+      this._clearQuickRefreshes();
       this._resourceDots.clear();
 
       if (this._menuOpenStateId) {

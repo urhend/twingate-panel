@@ -104,13 +104,16 @@ failed reads in a row.
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
 extension itself never sees or handles your credentials. While the command
-runs and the connection settles, the switch is locked in its new position and
-its label shows "Connecting…" / "Authenticating…", so a second click can't
-accidentally send the opposite command. If `start` or `stop` fails (wrong
-password, not authorized, CLI error), an error notification shows the reason
-and the switch returns to the real state; simply cancelling the password
-prompt is silent. These errors are shown even with notifications turned off,
-since they're direct feedback to your own click.
+runs and the connection settles, the switch is locked in its new position
+(while connecting, its label shows "Connecting…" / "Authenticating…"), so a
+second click can't accidentally send the opposite command. If the client stays
+in a connecting/authenticating state for more than 30 seconds, the switch
+unlocks so you can still disconnect. If `start` or `stop` fails (not
+authorized, CLI error), an error notification shows the reason and the switch
+returns to the real state. A wrong password just makes the polkit dialog ask
+again, and cancelling the password prompt is silent. The `start`/`stop` error
+notifications are shown even with notifications turned off, since they're
+direct feedback to your own click.
 
 ## Requirements
 
