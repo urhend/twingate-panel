@@ -42,7 +42,7 @@ export default class TwingatePanelPreferences extends ExtensionPreferences {
 
         const pingEnabledRow = new Adw.SwitchRow({
             title: 'Enable pings',
-            subtitle: 'Ping each resource periodically and show a reachability dot. Turn off to skip pinging entirely.',
+            subtitle: 'Ping each resource periodically while the dropdown is open and show a reachability dot. Turn off to skip pinging entirely.',
         });
         settings.bind('ping-enabled', pingEnabledRow, 'active', Gio.SettingsBindFlags.DEFAULT);
         pingGroup.add(pingEnabledRow);

@@ -57,7 +57,7 @@ dropdown menu that does it all.
 | 🟢 **Live status dot** | Grey (disconnected), yellow (connecting), green (connected) — always visible in the dropdown header, next to the network name. |
 | 🌐 **Network name** | Shows your Twingate network name (e.g. `network-name`), bold when connected, read from `twingate account list`. |
 | 🔌 **One-click connect / disconnect** | A toggle switch drives `twingate start` / `twingate stop` for you. |
-| 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. Shows "No resources available" instead of an empty section when connected with nothing authorized. |
+| 📡 **Resource list with reachability** | Every authorized resource is listed as `name · address`, each with its own dot that turns green or red based on a live ping. CIDR ranges and wildcard addresses are listed too, just without a dot, since they can't be pinged. Shows "No resources available" instead of an empty section when connected with nothing authorized. |
 | 🔍 **Resource search** | A magnifier button next to "Resources" reveals a compact filter box (name + address); auto-collapses when the dropdown closes. |
 | 🔔 **Connection notifications** | Native GNOME notifications on real connect/disconnect/error transitions, not on every poll — toggleable, and automatically silenced by GNOME's own Do Not Disturb setting. |
 | 🖼️ **Static, theme-independent icon** | The panel icon doesn't change color or shift with light/dark shell themes — it's always your Twingate mark. |
@@ -86,19 +86,34 @@ dropdown menu that does it all.
                               error transitions (never on repeated polls)
    twingate -d resources    →  resource list (only while connected);
                               "No resources available" if the list is empty
-   ping -c 1 -W 1 <ip>      →  reachability dot per resource, on its own
-                              independent interval — can be disabled entirely
+   ping -c 1 -W 1 <ip>      →  reachability dot per resource, only while the
+                              dropdown is open, on its own interval; can be
+                              disabled entirely
 ```
 
 Status polling uses the configured interval while the dropdown is open, and
 backs off to 6× slower while it's closed — reopening the menu triggers an
 immediate refresh. Typing in the resource search box filters by name and
 address without re-fetching or re-pinging anything; closing the dropdown
-clears the search automatically.
+clears the search automatically. Pings run only while the dropdown is open,
+and an address is never pinged again while its previous ping is still in
+flight. A single failed or unreadable `twingate status` result doesn't change the
+shown state; the "Something went wrong" notification appears only after 3
+failed reads in a row.
 
 Toggling the switch runs `pkexec twingate start` or `pkexec twingate stop`,
 which shows GNOME's native graphical polkit prompt for your password — the
-extension itself never sees or handles your credentials.
+extension itself never sees or handles your credentials. While the command
+runs and the connection settles, the switch is locked in its new position
+(while connecting, its label shows "Connecting…" / "Authenticating…"), so a
+second click can't accidentally send the opposite command. If the client stays
+in a connecting/authenticating state for more than 30 seconds, the switch
+unlocks so you can still disconnect. If `start` or `stop` fails (not
+authorized, CLI error), an error notification shows the reason and the switch
+returns to the real state. A wrong password just makes the polkit dialog ask
+again, and cancelling the password prompt is silent. The `start`/`stop` error
+notifications are shown even with notifications turned off, since they're
+direct feedback to your own click.
 
 ## Requirements
 
@@ -107,8 +122,9 @@ extension itself never sees or handles your credentials.
   `/usr/bin/twingate` — see the
   [official Twingate Linux installation guide](https://www.twingate.com/docs/linux)
   for setup instructions on your distribution
-- `pkexec` (polkit) and `ping` (iputils) available on `PATH` — present on
-  virtually every desktop Linux distribution by default
+- `pkexec` (polkit) at `/usr/bin/pkexec` and `ping` (iputils) at
+  `/usr/bin/ping`, present on virtually every desktop Linux distribution by
+  default
 
 Twingate itself must already be set up once, from a terminal:
 
@@ -160,7 +176,7 @@ gnome-extensions prefs twingate-panel@urhend
 |---|---|---|
 | Poll interval | `5` seconds | How often status and resources are refreshed. Takes effect immediately, no reload needed. |
 | Enable notifications | `on` | Send a native notification on real connect/disconnect/error transitions. Already respects GNOME's own Do Not Disturb setting regardless of this toggle. |
-| Enable pings | `on` | Ping each resource periodically to show a reachability dot. Turn off to skip pinging entirely. |
+| Enable pings | `on` | Ping each resource periodically while the dropdown is open to show a reachability dot. Turn off to skip pinging entirely. |
 | Ping interval | `5` seconds | How often resource reachability is re-checked, independent of the status poll interval. |
 
 Settings are stored via GSettings (schema
@@ -210,9 +226,10 @@ twingate-panel/
   passwordless option. This is intentional: `sudo` is disallowed entirely
   for privileged subprocesses under
   [GNOME's extension review guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html#privileged-subprocess-must-not-be-user-writable).
-- The Twingate binary path (`/usr/bin/twingate`) is hardcoded, not
-  configurable — for the same reason as above, and because every official
-  Twingate installer puts it there anyway.
+- The binary paths (`/usr/bin/twingate`, `/usr/bin/pkexec`,
+  `/usr/bin/ping`) are hardcoded, not configurable, for the same reason as
+  above. Every official Twingate installer puts the CLI there, and polkit and
+  iputils install to `/usr/bin` on merged-`/usr` distributions.
 - Resource reachability is a simple one-shot ICMP ping; it doesn't reflect
   Twingate's own internal routing/health checks.
 

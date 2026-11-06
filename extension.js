@@ -21,6 +21,15 @@ import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 Gio._promisify(Gio.Subprocess.prototype, "communicate_utf8_async");
 
 const TWINGATE_BIN = "/usr/bin/twingate";
+const PKEXEC_BIN = "/usr/bin/pkexec";
+const PING_BIN = "/usr/bin/ping";
+
+const PKEXEC_DISMISSED_STATUS = 126;
+const MAX_ERROR_DETAIL_LENGTH = 120;
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+const QUICK_REFRESH_DELAYS = [2, 5];
+const STATUS_FAILURE_THRESHOLD = 3;
+const TRANSITIONAL_LOCK_SECONDS = 30;
 
 const STATUS_INFO = {
   "not-running": { label: "Not running", connected: false, dotColor: "#9a9996" },
@@ -34,6 +43,8 @@ const STATUS_INFO = {
   },
   unknown: { label: "Unknown", connected: false, dotColor: "#9a9996" },
 };
+
+const TRANSITIONAL_STATES = new Set(["connecting", "authenticating"]);
 
 const NOTIFY_CATEGORY = {
   online: "connected",
@@ -61,10 +72,6 @@ function createDot(extraClass) {
   return dot;
 }
 
-function statusInfoFor(token) {
-  return STATUS_INFO[token] ?? STATUS_INFO.unknown;
-}
-
 async function runCommand(argv, cancellable) {
   let proc;
   try {
@@ -75,7 +82,7 @@ async function runCommand(argv, cancellable) {
     proc.init(cancellable);
   } catch (e) {
     if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return { success: false, stdout: "", stderr: e.message ?? String(e) };
+    return { success: false, stdout: "", stderr: e.message };
   }
 
   try {
@@ -85,40 +92,48 @@ async function runCommand(argv, cancellable) {
     );
     return {
       success: proc.get_successful(),
+      exitStatus: proc.get_if_exited() ? proc.get_exit_status() : null,
       stdout: stdout ?? "",
       stderr: stderr ?? "",
     };
   } catch (e) {
     if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return { success: false, stdout: "", stderr: e.message ?? String(e) };
+    return { success: false, stdout: "", stderr: e.message };
   }
+}
+
+function commandErrorDetail(result) {
+  const line = `${result.stderr}\n${result.stdout}`
+    .replace(ANSI_ESCAPE_RE, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!line) return "unknown error";
+  return line.length > MAX_ERROR_DETAIL_LENGTH
+    ? `${line.slice(0, MAX_ERROR_DETAIL_LENGTH)}…`
+    : line;
 }
 
 function parseStatusToken(stdout) {
   const firstLine =
-    (stdout ?? "")
+    stdout
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
-  const token = firstLine.toLowerCase().split(/\s+/)[0] ?? "";
-  return token in STATUS_INFO ? token : "unknown";
+  const token = firstLine.toLowerCase().split(/\s+/)[0];
+  return Object.hasOwn(STATUS_INFO, token) ? token : "unknown";
 }
 
 async function pingAddress(address, cancellable) {
-  try {
-    const result = await runCommand(
-      ["ping", "-c", "1", "-W", "1", address],
-      cancellable,
-    );
-    return result.success;
-  } catch (e) {
-    if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) throw e;
-    return false;
-  }
+  const result = await runCommand(
+    [PING_BIN, "-c", "1", "-W", "1", address],
+    cancellable,
+  );
+  return result.success;
 }
 
 function parseNetworkName(stdout) {
-  const lines = (stdout ?? "")
+  const lines = stdout
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -133,7 +148,7 @@ function parseNetworkName(stdout) {
 const VALID_ADDRESS_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]*$/;
 
 function parseResources(stdout) {
-  const lines = (stdout ?? "")
+  const lines = stdout
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
@@ -142,8 +157,11 @@ function parseResources(stdout) {
     const fields = line.split("\t").map((f) => f.trim());
     if (fields.length < 2 || /^resource name$/i.test(fields[0])) continue;
     const address = fields[1];
-    if (!VALID_ADDRESS_RE.test(address)) continue;
-    rows.push({ name: fields[0], address });
+    rows.push({
+      name: fields[0],
+      address,
+      pingable: VALID_ADDRESS_RE.test(address),
+    });
   }
   return rows;
 }
@@ -162,13 +180,20 @@ const Indicator = GObject.registerClass(
       this._pendingRefreshIds = new Set();
       this._suppressToggle = false;
       this._busy = false;
-      this._resourceGeneration = 0;
+      this._transitional = false;
+      this._transitionalSince = null;
+      this._pendingTarget = null;
       this._resourceDots = new Map();
       this._allResources = [];
       this._resourceFilter = "";
+      this._resourceItems = [];
+      this._renderedResourcesKey = null;
       this._searchToggledOn = false;
       this._pingStatus = new Map();
+      this._pingsInFlight = new Set();
+      this._pingAllOnNextResources = false;
       this._previousCategory = null;
+      this._statusFailures = 0;
       this._connected = false;
 
       const iconPath = GLib.build_filenamev([
@@ -193,9 +218,14 @@ const Indicator = GObject.registerClass(
       this._menuOpenStateId = this.menu.connect(
         "open-state-changed",
         (_menu, isOpen) => {
-          if (isOpen) this._refresh();
-          else this._setSearchVisible(false);
+          if (isOpen) {
+            this._pingAllOnNextResources = true;
+            this._refresh();
+          } else {
+            this._setSearchVisible(false);
+          }
           this._startPolling();
+          this._startPingPolling();
         },
       );
       this._settingsChangedId = this._settings.connect(
@@ -226,7 +256,7 @@ const Indicator = GObject.registerClass(
           [TWINGATE_BIN, "-d", "account", "list"],
           this._cancellable,
         );
-      } catch (e) {
+      } catch {
         return;
       }
 
@@ -256,25 +286,28 @@ const Indicator = GObject.registerClass(
         GLib.Source.remove(this._pingTimeoutId);
         this._pingTimeoutId = null;
       }
-      if (!this._settings.get_boolean("ping-enabled")) return;
+      if (!this._settings.get_boolean("ping-enabled") || !this.menu.isOpen)
+        return;
 
       const seconds = this._settings.get_int("ping-interval-seconds");
       this._pingTimeoutId = GLib.timeout_add_seconds(
         GLib.PRIORITY_DEFAULT,
         seconds,
         () => {
-          this._pingAllResources(this._resourceGeneration);
+          this._pingAllResources();
           return GLib.SOURCE_CONTINUE;
         },
       );
     }
 
-    _pingAllResources(generation) {
-      for (const { address } of this._allResources) {
-        if (generation !== this._resourceGeneration) return;
+    _pingAllResources(onlyUnpinged = false) {
+      if (!this.menu.isOpen) return;
+      for (const { address, pingable } of this._allResources) {
+        if (!pingable || this._pingsInFlight.has(address)) continue;
+        if (onlyUnpinged && this._pingStatus.has(address)) continue;
+        this._pingsInFlight.add(address);
         pingAddress(address, this._cancellable)
           .then((reachable) => {
-            if (generation !== this._resourceGeneration) return;
             this._pingStatus.set(address, reachable);
             const dot = this._resourceDots.get(address);
             if (dot) {
@@ -286,7 +319,8 @@ const Indicator = GObject.registerClass(
               );
             }
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => this._pingsInFlight.delete(address));
       }
     }
 
@@ -387,7 +421,7 @@ const Indicator = GObject.registerClass(
           .get_text()
           .trim()
           .toLowerCase();
-        this._renderResourceItems();
+        this._applyResourceFilter();
       });
       searchItem.add_child(this._searchEntry);
       searchItem.visible = false;
@@ -399,7 +433,7 @@ const Indicator = GObject.registerClass(
     }
 
     _setState(token) {
-      const info = statusInfoFor(token);
+      const info = STATUS_INFO[token];
       this._connected = info.connected;
 
       this._statusDot.set_style(`background-color: ${info.dotColor};`);
@@ -413,19 +447,51 @@ const Indicator = GObject.registerClass(
           "twingate-network-title-connected",
         );
 
+      this._transitional = TRANSITIONAL_STATES.has(token);
+      if (!this._transitional) this._transitionalSince = null;
+      else if (this._transitionalSince === null)
+        this._transitionalSince = GLib.get_monotonic_time();
+      if (this._pendingTarget === info.connected) this._pendingTarget = null;
+      const holding = this._pendingTarget !== null;
+
+      let label = "Connected";
+      if (this._transitional) label = info.label;
+      else if (holding && this._pendingTarget) label = STATUS_INFO.connecting.label;
+      this._switchItem.label.text = label;
+
       this._suppressToggle = true;
-      this._switchItem.setToggleState(info.connected);
+      this._switchItem.setToggleState(
+        holding ? this._pendingTarget : info.connected || this._transitional,
+      );
       this._suppressToggle = false;
+      this._syncSwitchSensitive();
+    }
+
+    _syncSwitchSensitive() {
+      const lockedByTransition =
+        this._transitional &&
+        GLib.get_monotonic_time() - this._transitionalSince <
+          TRANSITIONAL_LOCK_SECONDS * GLib.USEC_PER_SEC;
+      this._switchItem.setSensitive(
+        !this._busy && !lockedByTransition && this._pendingTarget === null,
+      );
     }
 
     _setResources(resources) {
       this._allResources = resources;
       if (resources.length === 0) this._pingStatus.clear();
-      this._renderResourceItems();
 
       const pingEnabled = this._settings.get_boolean("ping-enabled");
+      const key = JSON.stringify([this._connected, pingEnabled, resources]);
+      if (key !== this._renderedResourcesKey) {
+        this._renderedResourcesKey = key;
+        this._renderResourceItems();
+      }
+
+      const pingAll = this._pingAllOnNextResources;
+      this._pingAllOnNextResources = false;
       if (pingEnabled && resources.length > 0)
-        this._pingAllResources(this._resourceGeneration);
+        this._pingAllResources(!pingAll);
     }
 
     _setSearchVisible(visible) {
@@ -444,16 +510,10 @@ const Indicator = GObject.registerClass(
       this._resourcesHeader.visible = hasResources || showEmptyPlaceholder;
       this._resourceSearchItem.visible = hasResources && this._searchToggledOn;
 
-      this._resourceGeneration++;
       this._resourceDots.clear();
+      this._resourceItems = [];
 
       const pingEnabled = this._settings.get_boolean("ping-enabled");
-      const filter = this._resourceFilter;
-      const filtered = filter
-        ? this._allResources.filter(({ name, address }) =>
-            `${name} ${address}`.toLowerCase().includes(filter),
-          )
-        : this._allResources;
 
       if (showEmptyPlaceholder) {
         const emptyItem = new PopupMenu.PopupBaseMenuItem({
@@ -470,7 +530,7 @@ const Indicator = GObject.registerClass(
         this._resourcesSection.addMenuItem(emptyItem);
       }
 
-      for (const { name, address } of filtered) {
+      for (const { name, address, pingable } of this._allResources) {
         const item = new PopupMenu.PopupBaseMenuItem({
           reactive: false,
           can_focus: false,
@@ -496,14 +556,26 @@ const Indicator = GObject.registerClass(
               ? "twingate-dot-unreachable"
               : "twingate-dot-pending";
         const pingDot = createDot(pingClass);
-        pingDot.visible = pingEnabled;
+        const showDot = pingEnabled && pingable;
+        pingDot.visible = showDot;
         box.add_child(pingDot);
 
         item.add_child(box);
         this._resourcesSection.addMenuItem(item);
+        this._resourceItems.push({
+          item,
+          searchText: `${name} ${address}`.toLowerCase(),
+        });
 
-        if (pingEnabled) this._resourceDots.set(address, pingDot);
+        if (showDot) this._resourceDots.set(address, pingDot);
       }
+      this._applyResourceFilter();
+    }
+
+    _applyResourceFilter() {
+      const filter = this._resourceFilter;
+      for (const { item, searchText } of this._resourceItems)
+        item.visible = !filter || searchText.includes(filter);
     }
 
     _onToggle(wantConnected) {
@@ -513,43 +585,72 @@ const Indicator = GObject.registerClass(
 
     async _runStart() {
       if (this._busy) return;
+      this._clearQuickRefreshes();
       this._busy = true;
+      this._pendingTarget = true;
+      this._syncSwitchSensitive();
+      let result;
       try {
-        await runCommand(
-          ["pkexec", TWINGATE_BIN, "start"],
+        result = await runCommand(
+          [PKEXEC_BIN, TWINGATE_BIN, "start"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
+      } catch {
+        return;
       }
-      this._scheduleQuickRefreshes();
+      this._finishToggleCommand(result, "Could not connect");
     }
 
     async _runStop() {
       if (this._busy) return;
+      this._clearQuickRefreshes();
       this._busy = true;
+      this._pendingTarget = false;
+      this._syncSwitchSensitive();
+      let result;
       try {
-        await runCommand(
-          ["pkexec", TWINGATE_BIN, "stop"],
+        result = await runCommand(
+          [PKEXEC_BIN, TWINGATE_BIN, "stop"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-      } finally {
-        this._busy = false;
+      } catch {
+        return;
       }
-      this._scheduleQuickRefreshes();
+      this._finishToggleCommand(result, "Could not disconnect");
+    }
+
+    _finishToggleCommand(result, failureMessage) {
+      this._busy = false;
+      if (result.success) {
+        this._syncSwitchSensitive();
+        this._scheduleQuickRefreshes();
+        return;
+      }
+
+      this._pendingTarget = null;
+      if (result.exitStatus !== PKEXEC_DISMISSED_STATUS)
+        Main.notifyError(
+          "Twingate",
+          `${failureMessage}: ${commandErrorDetail(result)}`,
+        );
+      this._refresh();
+    }
+
+    _clearQuickRefreshes() {
+      for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
+      this._pendingRefreshIds.clear();
     }
 
     _scheduleQuickRefreshes() {
-      for (const delay of [2, 5]) {
+      this._clearQuickRefreshes();
+      const lastDelay = QUICK_REFRESH_DELAYS[QUICK_REFRESH_DELAYS.length - 1];
+      for (const delay of QUICK_REFRESH_DELAYS) {
         const id = GLib.timeout_add_seconds(
           GLib.PRIORITY_DEFAULT,
           delay,
           () => {
             this._pendingRefreshIds.delete(id);
+            if (delay === lastDelay) this._pendingTarget = null;
             this._refresh();
             return GLib.SOURCE_REMOVE;
           },
@@ -565,38 +666,49 @@ const Indicator = GObject.registerClass(
           [TWINGATE_BIN, "-d", "status"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
+      } catch {
         return;
       }
 
       if (!result.success && result.stdout.length === 0) {
-        this._setState("unknown");
-        this._maybeNotifyStateChange("unknown");
+        this._onStatusReadFailed();
         return;
       }
 
       const token = parseStatusToken(result.stdout);
+      if (token === "unknown") {
+        this._onStatusReadFailed();
+        return;
+      }
+
+      this._statusFailures = 0;
       this._setState(token);
       this._maybeNotifyStateChange(token);
 
-      if (statusInfoFor(token).connected) this._refreshResources();
+      if (STATUS_INFO[token].connected) this._refreshResources();
       else this._setResources([]);
     }
 
+    _onStatusReadFailed() {
+      this._statusFailures++;
+      if (this._statusFailures < STATUS_FAILURE_THRESHOLD) {
+        this._syncSwitchSensitive();
+        return;
+      }
+      this._setState("unknown");
+      this._maybeNotifyStateChange("unknown");
+    }
+
     _maybeNotifyStateChange(token) {
-      const category = NOTIFY_CATEGORY[token] ?? null;
+      const category = NOTIFY_CATEGORY[token];
       if (
         category &&
         this._previousCategory !== null &&
         category !== this._previousCategory &&
         this._settings.get_boolean("notifications-enabled")
       ) {
-        const network = this._networkNameLabel.text || "Twingate";
         if (category === "connected")
-          Main.notify("Twingate", `Connected to ${network}`);
+          Main.notify("Twingate", `Connected to ${this._networkNameLabel.text}`);
         else if (category === "disconnected")
           Main.notify("Twingate", "Disconnected");
         else if (category === "error")
@@ -615,9 +727,7 @@ const Indicator = GObject.registerClass(
           [TWINGATE_BIN, "-d", "resources"],
           this._cancellable,
         );
-      } catch (e) {
-        if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) return;
-        this._setResources([]);
+      } catch {
         return;
       }
 
@@ -633,8 +743,7 @@ const Indicator = GObject.registerClass(
         GLib.Source.remove(this._pingTimeoutId);
         this._pingTimeoutId = null;
       }
-      for (const id of this._pendingRefreshIds) GLib.Source.remove(id);
-      this._pendingRefreshIds.clear();
+      this._clearQuickRefreshes();
       this._resourceDots.clear();
 
       if (this._menuOpenStateId) {
